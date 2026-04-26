@@ -4,6 +4,7 @@
 
 I have always dreamed of building my own portable physical keyboard. After exploring the community, I was deeply inspired by the pioneering work of arturo182/BBQ10KBD and ZitaoTech/BBQ10-USB_BLE_Keyboard. Their research provided the foundation for this project, and I am incredibly grateful for their contributions to the open-source community.
 
+![image](https://github.com/kkbin505/BBQ10_KBD_Firmware/blob/web_server/img/IMG_5940.jpg)
 
 Project Overview
 This project is a lightweight, ESP32-based firmware implementation designed for the Blackberry Q10 keyboard module. Unlike traditional firmware that requires recompiling to change keymaps, this project focuses on a streamlined user experience through an integrated WiFi-based configuration interface.
