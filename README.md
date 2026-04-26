@@ -80,6 +80,14 @@ Ctrl(Mic) Alt(0) Space Sym(L2/L3) aA(Shift)
 - **Dual Mode**: Sends key events to both BLE and USB HID simultaneously.
 - **Auto-Reconnect**: Preserves BLE bonds for seamless pairing.
 - **Persistent Storage**: Settings are stored in **LittleFS** as a JSON file.
+### LED Status Indicators
+The device features an onboard WS2812 RGB LED (controlled via GPIO48) to provide real-time visual feedback on the device status:
+
+🔴 Red: BLE Disconnected
+
+🟢 Green: BLE Connected
+
+🔵 Blue: WiFi Configuration Mode
 
 ## Build and Upload
 

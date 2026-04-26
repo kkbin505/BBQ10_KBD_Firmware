@@ -28,6 +28,7 @@
 
 #include "ConfigManager.h"
 #include "WebManager.h"
+#include "StatusLED.h"
 
 BleKeyboard Keyboard("BBQ10KBD", "BBQ10KBD", 100);
 USBHIDKeyboard UsbKeyboard;
@@ -467,6 +468,7 @@ void enterLightSleep() {
 void setup() {
   ConfigManager::begin();
   WebManager::begin();
+  StatusLED::begin();
   
   // Configure CPU frequency and dynamic power management
   // Set max frequency to 80MHz, min to 20MHz (auto-scales when idle)
@@ -497,6 +499,8 @@ void setup() {
 }
 
 void loop() {
+  StatusLED::update();
+
   if (WebManager::isConfigMode()) {
     WebManager::handle();
     delay(10);
