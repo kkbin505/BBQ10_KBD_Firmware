@@ -2,8 +2,8 @@
 #include <BleKeyboard.h>
 #include <NimBLEDevice.h>
 #include <ctype.h>
-#include <esp_sleep.h>
 #include <esp_pm.h>
+#include <esp_sleep.h>
 
 #ifdef HID_SUBCLASS_NONE
 #undef HID_SUBCLASS_NONE
@@ -61,8 +61,9 @@ constexpr size_t ALT_COL = 0;
 constexpr size_t ALT_ROW = 4;
 
 // Power management configuration
-constexpr unsigned long INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;  // 10 minutes
-constexpr unsigned long BLE_DISCONNECT_GRACE_PERIOD_MS = 30 * 1000;  // 30 seconds
+constexpr unsigned long INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+constexpr unsigned long BLE_DISCONNECT_GRACE_PERIOD_MS =
+    30 * 1000; // 30 seconds
 unsigned long lastActivityTime = 0;
 unsigned long lastBleDisconnectTime = 0;
 bool isInLightSleep = false;
@@ -219,16 +220,16 @@ void updateCmdModifier() {
 
   if (cmdHeldNow && !cmdModifierActive) {
     if (Keyboard.isConnected()) {
-      Keyboard.press(KEY_LEFT_GUI);
+      Keyboard.press(KEY_LEFT_CTRL);
     }
-    UsbKeyboard.press(KEY_LEFT_GUI);
+    UsbKeyboard.press(KEY_LEFT_CTRL);
     cmdModifierActive = true;
     cmdUsedWithOtherKey = false;
   } else if (!cmdHeldNow && cmdModifierActive) {
     if (Keyboard.isConnected()) {
-      Keyboard.release(KEY_LEFT_GUI);
+      Keyboard.release(KEY_LEFT_CTRL);
     }
-    UsbKeyboard.release(KEY_LEFT_GUI);
+    UsbKeyboard.release(KEY_LEFT_CTRL);
     cmdModifierActive = false;
   }
 }
@@ -299,7 +300,7 @@ void emitSpecialKey(uint8_t keycode) {
     shiftUsedWithOtherKey = true;
   }
 
-  if (cmdModifierActive && keycode != KEY_LEFT_GUI) {
+  if (cmdModifierActive && keycode != KEY_LEFT_CTRL) {
     cmdUsedWithOtherKey = true;
     // Cancel long-press for ALT if it's being used as a modifier for another
     // key
@@ -338,9 +339,9 @@ void processLongPressFallbacks() {
         // Cmd+Tab
         if (key.col == ALT_COL && key.row == ALT_ROW) {
           if (Keyboard.isConnected()) {
-            Keyboard.release(KEY_LEFT_GUI);
+            Keyboard.release(KEY_LEFT_CTRL);
           }
-          UsbKeyboard.release(KEY_LEFT_GUI);
+          UsbKeyboard.release(KEY_LEFT_CTRL);
         }
 
         // Keys in Layer 3 are handled by printMatrix(), so skip here
@@ -360,7 +361,7 @@ void processLongPressFallbacks() {
       key.tracking = false;
       key.longSent = false;
       key.layerAtPress = 0;
-      
+
       // Update activity on key release
       updateLastActivity();
     }
@@ -451,13 +452,11 @@ void updateLastActivity() {
   isInLightSleep = false;
 }
 
-bool isBleConnected() {
-  return Keyboard.isConnected();
-}
+bool isBleConnected() { return Keyboard.isConnected(); }
 
 void updateBleDisconnectTimer() {
   const bool currentConnected = isBleConnected();
-  
+
   if (wasConnectedPreviously && !currentConnected) {
     // BLE just disconnected
     lastBleDisconnectTime = millis();
@@ -469,17 +468,17 @@ bool shouldEnterSleep() {
   const unsigned long now = millis();
   const unsigned long inactiveTime = now - lastActivityTime;
   const bool bleConnected = isBleConnected();
-  
+
   // Must be inactive for at least INACTIVITY_TIMEOUT_MS
   if (inactiveTime < INACTIVITY_TIMEOUT_MS) {
     return false;
   }
-  
+
   // If BLE is connected, allow sleep
   if (bleConnected) {
     return true;
   }
-  
+
   // If BLE is disconnected, wait GRACE_PERIOD before sleeping
   const unsigned long disconnectTime = now - lastBleDisconnectTime;
   return disconnectTime >= BLE_DISCONNECT_GRACE_PERIOD_MS;
@@ -489,25 +488,22 @@ void enterLightSleep() {
   // Configure GPIO wakeup on row pins (pressed = LOW)
   // This allows any key press to wake the device
   // Using GPIO 6 (first row pin) as the wakeup trigger
-  esp_sleep_enable_ext0_wakeup(GPIO_NUM_6, 0);  // Row 6, trigger on LOW
-  
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_6, 0); // Row 6, trigger on LOW
+
   isInLightSleep = true;
   esp_light_sleep_start();
-  
+
   // Code resumes here after wakeup
-  updateLastActivity();  // Reset activity timer on wake
+  updateLastActivity(); // Reset activity timer on wake
 }
 
 void setup() {
   // Configure CPU frequency and dynamic power management
   // Set max frequency to 80MHz, min to 20MHz (auto-scales when idle)
   esp_pm_config_esp32s3_t pm_config = {
-      .max_freq_mhz = 80,
-      .min_freq_mhz = 20,
-      .light_sleep_enable = true
-  };
+      .max_freq_mhz = 80, .min_freq_mhz = 20, .light_sleep_enable = true};
   esp_pm_configure(&pm_config);
-  
+
   USB.begin();
   UsbKeyboard.begin();
 
@@ -525,7 +521,7 @@ void setup() {
   for (size_t i = 0; i < COL_COUNT; i++) {
     pinMode(cols[i], INPUT_PULLUP);
   }
-  
+
   // Initialize activity timer
   lastActivityTime = millis();
 }
@@ -546,7 +542,7 @@ void loop() {
 
   // Monitor BLE connection status
   updateBleDisconnectTimer();
-  
+
   // Check if should enter light sleep
   if (shouldEnterSleep()) {
     enterLightSleep();
