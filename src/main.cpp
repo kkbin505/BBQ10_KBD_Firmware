@@ -2,6 +2,8 @@
 #include <BleKeyboard.h>
 #include <NimBLEDevice.h>
 #include <ctype.h>
+#include <esp_sleep.h>
+#include <esp_pm.h>
 
 #ifdef HID_SUBCLASS_NONE
 #undef HID_SUBCLASS_NONE
@@ -57,6 +59,14 @@ constexpr size_t LAYER2_COL = 0;
 constexpr size_t LAYER2_ROW = 2;
 constexpr size_t ALT_COL = 0;
 constexpr size_t ALT_ROW = 4;
+
+// Power management configuration
+constexpr unsigned long INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;  // 10 minutes
+constexpr unsigned long BLE_DISCONNECT_GRACE_PERIOD_MS = 30 * 1000;  // 30 seconds
+unsigned long lastActivityTime = 0;
+unsigned long lastBleDisconnectTime = 0;
+bool isInLightSleep = false;
+bool wasConnectedPreviously = true;
 
 // [col][row]
 const char keyboard[COL_COUNT][ROW_COUNT] = {
@@ -123,6 +133,13 @@ LongPressKey longPressKeys[] = {
     {L_COL, L_ROW, 'l', 'k', '"', '\'', false, false, 0, 0},
     {ALT_COL, ALT_ROW, '\0', 0x09, '\0', 0x09, false, false, 0, 0},
 };
+
+// Forward declarations for power management functions
+void updateLastActivity();
+bool isBleConnected();
+void updateBleDisconnectTimer();
+bool shouldEnterSleep();
+void enterLightSleep();
 
 bool keyPressed(size_t colIndex, size_t rowIndex) {
   return changedValue[colIndex][rowIndex] && keys[colIndex][rowIndex];
@@ -343,6 +360,9 @@ void processLongPressFallbacks() {
       key.tracking = false;
       key.longSent = false;
       key.layerAtPress = 0;
+      
+      // Update activity on key release
+      updateLastActivity();
     }
   }
 }
@@ -380,6 +400,9 @@ void printMatrix() {
       if (!keyPressed(colIndex, rowIndex)) {
         continue;
       }
+
+      // Update last activity time when any key is pressed
+      updateLastActivity();
 
       if (colIndex == BACKSPACE_COL && rowIndex == BACKSPACE_ROW) {
         emitSpecialKey(KEY_BACKSPACE);
@@ -422,7 +445,69 @@ void printMatrix() {
   }
 }
 
+// Power Management Functions
+void updateLastActivity() {
+  lastActivityTime = millis();
+  isInLightSleep = false;
+}
+
+bool isBleConnected() {
+  return Keyboard.isConnected();
+}
+
+void updateBleDisconnectTimer() {
+  const bool currentConnected = isBleConnected();
+  
+  if (wasConnectedPreviously && !currentConnected) {
+    // BLE just disconnected
+    lastBleDisconnectTime = millis();
+  }
+  wasConnectedPreviously = currentConnected;
+}
+
+bool shouldEnterSleep() {
+  const unsigned long now = millis();
+  const unsigned long inactiveTime = now - lastActivityTime;
+  const bool bleConnected = isBleConnected();
+  
+  // Must be inactive for at least INACTIVITY_TIMEOUT_MS
+  if (inactiveTime < INACTIVITY_TIMEOUT_MS) {
+    return false;
+  }
+  
+  // If BLE is connected, allow sleep
+  if (bleConnected) {
+    return true;
+  }
+  
+  // If BLE is disconnected, wait GRACE_PERIOD before sleeping
+  const unsigned long disconnectTime = now - lastBleDisconnectTime;
+  return disconnectTime >= BLE_DISCONNECT_GRACE_PERIOD_MS;
+}
+
+void enterLightSleep() {
+  // Configure GPIO wakeup on row pins (pressed = LOW)
+  // This allows any key press to wake the device
+  // Using GPIO 6 (first row pin) as the wakeup trigger
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_6, 0);  // Row 6, trigger on LOW
+  
+  isInLightSleep = true;
+  esp_light_sleep_start();
+  
+  // Code resumes here after wakeup
+  updateLastActivity();  // Reset activity timer on wake
+}
+
 void setup() {
+  // Configure CPU frequency and dynamic power management
+  // Set max frequency to 80MHz, min to 20MHz (auto-scales when idle)
+  esp_pm_config_esp32s3_t pm_config = {
+      .max_freq_mhz = 80,
+      .min_freq_mhz = 20,
+      .light_sleep_enable = true
+  };
+  esp_pm_configure(&pm_config);
+  
   USB.begin();
   UsbKeyboard.begin();
 
@@ -440,6 +525,9 @@ void setup() {
   for (size_t i = 0; i < COL_COUNT; i++) {
     pinMode(cols[i], INPUT_PULLUP);
   }
+  
+  // Initialize activity timer
+  lastActivityTime = millis();
 }
 
 void loop() {
@@ -454,6 +542,14 @@ void loop() {
   // Enter key at [3][3]
   if (keyPressed(3, 3)) {
     emitSpecialKey(KEY_RETURN);
+  }
+
+  // Monitor BLE connection status
+  updateBleDisconnectTimer();
+  
+  // Check if should enter light sleep
+  if (shouldEnterSleep()) {
+    enterLightSleep();
   }
 
   delay(10);
