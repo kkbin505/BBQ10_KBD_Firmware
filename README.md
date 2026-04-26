@@ -79,7 +79,9 @@ pio run --target upload
 4. If connected but typing does not work, remove old pairing and pair again.
 
 
-## ToDo list
+## Reference:
 
-Megasafe
+https://github.com/arturo182/BBQ10KBD
+
+https://github.com/ZitaoTech/BBQ10-USB_BLE_Keyboard
 
