@@ -1,7 +1,7 @@
 #include <Arduino.h>
-#include <ctype.h>
 #include <BleKeyboard.h>
 #include <NimBLEDevice.h>
+#include <ctype.h>
 
 #ifdef HID_SUBCLASS_NONE
 #undef HID_SUBCLASS_NONE
@@ -24,7 +24,7 @@
 #include <USBHIDKeyboard.h>
 #undef KeyReport
 
-BleKeyboard Keyboard("BBQ10-BLE2", "BBQ10", 100);
+BleKeyboard Keyboard("BBQ10KBD", "BBQ10KBD", 100);
 USBHIDKeyboard UsbKeyboard;
 
 constexpr uint8_t rows[] = {6, 7, 8, 9, 10, 11, 12};
@@ -47,50 +47,62 @@ constexpr size_t L_COL = 4;
 constexpr size_t L_ROW = 1;
 constexpr size_t BACKSPACE_COL = 4;
 constexpr size_t BACKSPACE_ROW = 3;
-constexpr size_t LEFT_SHIFT_COL = 0;
-constexpr size_t LEFT_SHIFT_ROW = 4;
+constexpr size_t LEFT_SHIFT_COL = 1;
+constexpr size_t LEFT_SHIFT_ROW = 6;
 constexpr size_t RIGHT_SHIFT_COL = 2;
 constexpr size_t RIGHT_SHIFT_ROW = 3;
-constexpr size_t CTRL_COL = 1;
-constexpr size_t CTRL_ROW = 6;
+// constexpr size_t CTRL_COL = 1;
+// constexpr size_t CTRL_ROW = 6;
 constexpr size_t LAYER2_COL = 0;
 constexpr size_t LAYER2_ROW = 2;
 constexpr size_t ALT_COL = 0;
 constexpr size_t ALT_ROW = 4;
+
 // [col][row]
 const char keyboard[COL_COUNT][ROW_COUNT] = {
-  {'q', 'w', '\0', 'a', '\0', ' ', '\0'},
-  {'e', 's', 'd', 'p', 'x', 'z', '\0'},
-  {'r', 'g', 't', '\0', 'v', 'c', 'f'},
-  {'u', 'h', 'y', '\0', 'b', 'n', 'j'},
-  {'o', 'l', 'i', '\0', '$', 'm', 'k'},
+    {'q', 'w', '\0', 'a', '\0', ' ', '0'}, {'e', 's', 'd', 'p', 'x', 'z', '\0'},
+    {'r', 'g', 't', '\0', 'v', 'c', 'f'},  {'u', 'h', 'y', '\0', 'b', 'n', 'j'},
+    {'o', 'l', 'i', '\0', '$', 'm', 'k'},
 };
 
 const char keyboardSymbol[COL_COUNT][ROW_COUNT] = {
-  {'#', '1', '\0', '*', '\0', '\0', '0'},
-  {'2', '4', '5', '@', '8', '7', '\0'},
-  {'3', '/', '(', '\0', '?', '9', '6'},
-  {'_', ':', ')', '\0', '!', ',', ';'},
-  {'+', '"', '-', '\0', '\0', '.', '\''},
+    {'#', '1', '\0', '*', '\0', '\0', '0'},
+    {'2', '4', '5', '@', '8', '7', '\0'},
+    {'3', '/', '(', '\0', '?', '9', '6'},
+    {'_', ':', ')', '\0', '!', ',', ';'},
+    {'+', '"', '-', '\0', '\0', '.', '\''},
+};
+
+const uint8_t keyboardLayer3[COL_COUNT][ROW_COUNT] = {
+    {'\0', KEY_UP_ARROW, '\0', KEY_LEFT_ARROW, '\0', '\0', '\0'},
+    {'\0', KEY_DOWN_ARROW, KEY_RIGHT_ARROW, '\0', '\0', '\0', '\0'},
+    {'\0', '\0', '\0', '\0', '\0', '\0', '\0'},
+    {'\0', '\0', '\0', '\0', '\0', '\0', '\0'},
+    {'\0', '\0', '\0', '\0', '\0', '\0', '\0'},
 };
 
 // Special keys: TAB, ENTER, ESC, etc.
 // 0 means no special key at that position
 const uint8_t keyboardSpecial[COL_COUNT][ROW_COUNT] = {
-  {0, 0, 0, 0, KEY_TAB, 0, 0},        // col 0: ALT at [0][4] produces TAB in Layer 2
-  {0, 0, 0, 0, 0, 0, 0},              // col 1
-  {0, 0, 0, 0, 0, 0, 0},              // col 2
-  {0, 0, 0, 0, 0, 0, 0},              // col 3
-  {0, 0, 0, 0, 0, 0, 0},              // col 4
+    {0, 0, 0, 0, 0, 0, 0}, // col 0: ALT no longer Tab here
+    {0, 0, 0, 0, 0, 0, 0}, // col 1
+    {0, 0, 0, 0, 0, 0, 0}, // col 2
+    {0, 0, 0, 0, 0, 0, 0}, // col 3
+    {0, 0, 0, 0, 0, 0, 0}, // col 4
 };
 
 bool ctrlModifierActive = false;
 bool shiftModifierActive = false;
 bool shiftUsedWithOtherKey = false;
+bool cmdModifierActive = false;
+bool cmdUsedWithOtherKey = false;
 
 // Layer 2 toggle state (SYM key)
-bool layer2Toggle = false;
+// Layer state: 0=Base, 1=Symbols, 2=Navigation
+uint8_t currentLayer = 0;
 bool layer2LastPressed = false;
+unsigned long lastSymPressTime = 0;
+constexpr unsigned long DOUBLE_TAP_MS = 300;
 
 struct LongPressKey {
   size_t col;
@@ -101,14 +113,15 @@ struct LongPressKey {
   char layer2LongOutput;
   bool tracking;
   bool longSent;
-  bool layer2AtPress;
+  uint8_t layerAtPress;
   unsigned long pressStart;
 };
 
 LongPressKey longPressKeys[] = {
-  {D_COL, D_ROW, 'd', 'f', '5', '6', false, false, false, 0},
-  {H_COL, H_ROW, 'h', 'j', ':', ';', false, false, false, 0},
-  {L_COL, L_ROW, 'l', 'k', '"', '\'', false, false, false, 0},
+    {D_COL, D_ROW, 'd', 'f', '5', '6', false, false, 0, 0},
+    {H_COL, H_ROW, 'h', 'j', ':', ';', false, false, 0, 0},
+    {L_COL, L_ROW, 'l', 'k', '"', '\'', false, false, 0, 0},
+    {ALT_COL, ALT_ROW, '\0', 0x09, '\0', 0x09, false, false, 0, 0},
 };
 
 bool keyPressed(size_t colIndex, size_t rowIndex) {
@@ -120,24 +133,45 @@ bool keyActive(size_t colIndex, size_t rowIndex) {
 }
 
 bool isPrintableKey(size_t colIndex, size_t rowIndex) {
-  return keyboard[colIndex][rowIndex] != '\0' || keyboardSymbol[colIndex][rowIndex] != '\0';
+  return keyboard[colIndex][rowIndex] != '\0' ||
+         keyboardSymbol[colIndex][rowIndex] != '\0' ||
+         keyboardLayer3[colIndex][rowIndex] != '\0';
 }
 
-bool isLayer2Active() {
-  return layer2Toggle;
-}
+bool isLayer2Active() { return currentLayer == 1; }
+bool isLayer3Active() { return currentLayer == 2; }
 
 void updateLayer2Toggle() {
   const bool symPressed = keyActive(LAYER2_COL, LAYER2_ROW);
   if (symPressed && !layer2LastPressed) {
-    // SYM key just pressed — toggle Layer 2
-    layer2Toggle = !layer2Toggle;
+    const unsigned long now = millis();
+    const bool isQuickTap = (now - lastSymPressTime < DOUBLE_TAP_MS);
+
+    switch (currentLayer) {
+    case 1: // From Layer 2 (Symbols)
+      currentLayer = isQuickTap ? 2 : 0;
+      break;
+    case 2: // From Layer 3 (Navigation)
+      currentLayer = 0;
+      break;
+    default: // From Layer 1 (Base)
+      currentLayer = isQuickTap ? 2 : 1;
+      break;
+    }
+    lastSymPressTime = now;
   }
   layer2LastPressed = symPressed;
 }
 
 bool isLongPressManagedKey(size_t colIndex, size_t rowIndex) {
-  for (size_t i = 0; i < (sizeof(longPressKeys) / sizeof(longPressKeys[0])); i++) {
+  // If Layer 3 has an override for this key, don't treat it as long-press
+  // managed so that printMatrix can handle it directly.
+  if (currentLayer == 2 && keyboardLayer3[colIndex][rowIndex] != 0) {
+    return false;
+  }
+
+  for (size_t i = 0; i < (sizeof(longPressKeys) / sizeof(longPressKeys[0]));
+       i++) {
     if (longPressKeys[i].col == colIndex && longPressKeys[i].row == rowIndex) {
       return true;
     }
@@ -145,27 +179,46 @@ bool isLongPressManagedKey(size_t colIndex, size_t rowIndex) {
   return false;
 }
 
-void updateCtrlModifier() {
-  const bool ctrlHeldNow = keyActive(CTRL_COL, CTRL_ROW);
+// void updateCtrlModifier() {
+//   const bool ctrlHeldNow = keyActive(CTRL_COL, CTRL_ROW);
 
-  if (ctrlHeldNow && !ctrlModifierActive) {
+//   if (ctrlHeldNow && !ctrlModifierActive) {
+//     if (Keyboard.isConnected()) {
+//       Keyboard.press(KEY_LEFT_CTRL);
+//     }
+//     UsbKeyboard.press(KEY_LEFT_CTRL);
+//     ctrlModifierActive = true;
+//   } else if (!ctrlHeldNow && ctrlModifierActive) {
+//     if (Keyboard.isConnected()) {
+//       Keyboard.release(KEY_LEFT_CTRL);
+//     }
+//     UsbKeyboard.release(KEY_LEFT_CTRL);
+//     ctrlModifierActive = false;
+//   }
+// }
+
+void updateCmdModifier() {
+  const bool cmdHeldNow = keyActive(ALT_COL, ALT_ROW);
+
+  if (cmdHeldNow && !cmdModifierActive) {
     if (Keyboard.isConnected()) {
-      Keyboard.press(KEY_LEFT_CTRL);
+      Keyboard.press(KEY_LEFT_GUI);
     }
-    UsbKeyboard.press(KEY_LEFT_CTRL);
-    ctrlModifierActive = true;
-  } else if (!ctrlHeldNow && ctrlModifierActive) {
+    UsbKeyboard.press(KEY_LEFT_GUI);
+    cmdModifierActive = true;
+    cmdUsedWithOtherKey = false;
+  } else if (!cmdHeldNow && cmdModifierActive) {
     if (Keyboard.isConnected()) {
-      Keyboard.release(KEY_LEFT_CTRL);
+      Keyboard.release(KEY_LEFT_GUI);
     }
-    UsbKeyboard.release(KEY_LEFT_CTRL);
-    ctrlModifierActive = false;
+    UsbKeyboard.release(KEY_LEFT_GUI);
+    cmdModifierActive = false;
   }
 }
 
 void updateShiftModifier() {
-  const bool shiftHeldNow = keyActive(LEFT_SHIFT_COL, LEFT_SHIFT_ROW)
-                         || keyActive(RIGHT_SHIFT_COL, RIGHT_SHIFT_ROW);
+  const bool shiftHeldNow = keyActive(LEFT_SHIFT_COL, LEFT_SHIFT_ROW) ||
+                            keyActive(RIGHT_SHIFT_COL, RIGHT_SHIFT_ROW);
 
   if (shiftHeldNow && !shiftModifierActive) {
     if (Keyboard.isConnected()) {
@@ -180,7 +233,8 @@ void updateShiftModifier() {
     }
     UsbKeyboard.release(KEY_LEFT_SHIFT);
 
-    // If Shift was pressed alone, emit a standalone Shift tap for IME toggle behavior.
+    // If Shift was pressed alone, emit a standalone Shift tap for IME toggle
+    // behavior.
     if (!shiftUsedWithOtherKey) {
       if (Keyboard.isConnected()) {
         Keyboard.write(KEY_LEFT_SHIFT);
@@ -202,6 +256,19 @@ void emitKey(char output) {
     shiftUsedWithOtherKey = true;
   }
 
+  if (cmdModifierActive) {
+    cmdUsedWithOtherKey = true;
+    // Cancel long-press for ALT if it's being used as a modifier for another
+    // key
+    for (size_t i = 0; i < (sizeof(longPressKeys) / sizeof(longPressKeys[0]));
+         i++) {
+      if (longPressKeys[i].col == ALT_COL && longPressKeys[i].row == ALT_ROW) {
+        longPressKeys[i].tracking = false;
+        break;
+      }
+    }
+  }
+
   const uint8_t keycode = static_cast<uint8_t>(output);
   if (Keyboard.isConnected()) {
     Keyboard.write(keycode);
@@ -210,8 +277,22 @@ void emitKey(char output) {
 }
 
 void emitSpecialKey(uint8_t keycode) {
-  if (shiftModifierActive && keycode != KEY_LEFT_SHIFT && keycode != KEY_RIGHT_SHIFT) {
+  if (shiftModifierActive && keycode != KEY_LEFT_SHIFT &&
+      keycode != KEY_RIGHT_SHIFT) {
     shiftUsedWithOtherKey = true;
+  }
+
+  if (cmdModifierActive && keycode != KEY_LEFT_GUI) {
+    cmdUsedWithOtherKey = true;
+    // Cancel long-press for ALT if it's being used as a modifier for another
+    // key
+    for (size_t i = 0; i < (sizeof(longPressKeys) / sizeof(longPressKeys[0]));
+         i++) {
+      if (longPressKeys[i].col == ALT_COL && longPressKeys[i].row == ALT_ROW) {
+        longPressKeys[i].tracking = false;
+        break;
+      }
+    }
   }
 
   if (Keyboard.isConnected()) {
@@ -222,9 +303,10 @@ void emitSpecialKey(uint8_t keycode) {
 
 void processLongPressFallbacks() {
   const unsigned long now = millis();
-  const bool layer2Active = isLayer2Active();
+  const uint8_t activeLayer = currentLayer;
 
-  for (size_t i = 0; i < (sizeof(longPressKeys) / sizeof(longPressKeys[0])); i++) {
+  for (size_t i = 0; i < (sizeof(longPressKeys) / sizeof(longPressKeys[0]));
+       i++) {
     LongPressKey &key = longPressKeys[i];
     const bool active = keyActive(key.col, key.row);
 
@@ -232,21 +314,35 @@ void processLongPressFallbacks() {
       if (!key.tracking) {
         key.tracking = true;
         key.longSent = false;
-        key.layer2AtPress = layer2Active;
+        key.layerAtPress = activeLayer;
         key.pressStart = now;
       } else if (!key.longSent && (now - key.pressStart) >= LONG_PRESS_MS) {
-        const char longOutput = key.layer2AtPress ? key.layer2LongOutput : key.baseLongOutput;
-        emitKey(longOutput);
-        key.longSent = true;
+        // Special case for ALT: release Command before sending Tab to avoid
+        // Cmd+Tab
+        if (key.col == ALT_COL && key.row == ALT_ROW) {
+          if (Keyboard.isConnected()) {
+            Keyboard.release(KEY_LEFT_GUI);
+          }
+          UsbKeyboard.release(KEY_LEFT_GUI);
+        }
+
+        // Keys in Layer 3 are handled by printMatrix(), so skip here
+        if (key.layerAtPress != 2) {
+          const char longOutput = (key.layerAtPress == 1) ? key.layer2LongOutput
+                                                          : key.baseLongOutput;
+          emitKey(longOutput);
+        }
+        key.longSent = true; // Mark as sent to prevent re-triggering on release
       }
     } else if (key.tracking) {
-      if (!key.longSent) {
-        const char shortOutput = key.layer2AtPress ? key.layer2ShortOutput : key.baseShortOutput;
+      if (!key.longSent && key.layerAtPress != 2) { // Skip for Layer 3
+        const char shortOutput = (key.layerAtPress == 1) ? key.layer2ShortOutput
+                                                         : key.baseShortOutput;
         emitKey(shortOutput);
       }
       key.tracking = false;
       key.longSent = false;
-      key.layer2AtPress = false;
+      key.layerAtPress = 0;
     }
   }
 }
@@ -265,7 +361,8 @@ void readMatrix() {
 
       const bool buttonPressed = (digitalRead(curRow) == LOW);
       keys[colIndex][rowIndex] = buttonPressed;
-      changedValue[colIndex][rowIndex] = (lastValue[colIndex][rowIndex] != buttonPressed);
+      changedValue[colIndex][rowIndex] =
+          (lastValue[colIndex][rowIndex] != buttonPressed);
       lastValue[colIndex][rowIndex] = buttonPressed;
 
       pinMode(curRow, INPUT);
@@ -276,7 +373,7 @@ void readMatrix() {
 }
 
 void printMatrix() {
-  const bool layer2Active = isLayer2Active();
+  const uint8_t activeLayer = currentLayer;
 
   for (size_t rowIndex = 0; rowIndex < ROW_COUNT; rowIndex++) {
     for (size_t colIndex = 0; colIndex < COL_COUNT; colIndex++) {
@@ -289,9 +386,14 @@ void printMatrix() {
         continue;
       }
 
-      // Check for special keys in Layer 2 (e.g., SYM + ALT → TAB)
-      if (layer2Active && keyboardSpecial[colIndex][rowIndex] != 0) {
+      if (activeLayer == 1 && keyboardSpecial[colIndex][rowIndex] != 0) {
         emitSpecialKey(keyboardSpecial[colIndex][rowIndex]);
+        continue;
+      }
+
+      // Check for Navigation keys in Layer 3
+      if (activeLayer == 2 && keyboardLayer3[colIndex][rowIndex] != 0) {
+        emitSpecialKey(keyboardLayer3[colIndex][rowIndex]);
         continue;
       }
 
@@ -304,8 +406,11 @@ void printMatrix() {
       }
 
       char output = keyboard[colIndex][rowIndex];
-      if (layer2Active && keyboardSymbol[colIndex][rowIndex] != '\0') {
+      if (activeLayer == 1 && keyboardSymbol[colIndex][rowIndex] != '\0') {
         output = keyboardSymbol[colIndex][rowIndex];
+      } else if (activeLayer == 2 &&
+                 keyboardLayer3[colIndex][rowIndex] != '\0') {
+        output = (char)keyboardLayer3[colIndex][rowIndex];
       }
 
       if (output == '\0') {
@@ -341,7 +446,8 @@ void loop() {
   readMatrix();
   updateLayer2Toggle();
   updateShiftModifier();
-  updateCtrlModifier();
+  // updateCtrlModifier();
+  updateCmdModifier();
   processLongPressFallbacks();
   printMatrix();
 

@@ -1,85 +1,79 @@
 # BBQ10KBD Firmware (ESP32-S3)
 
-This firmware turns an ESP32-S3 board into a BLE keyboard for the BlackBerry Q10 keyboard matrix.
+This firmware turns an ESP32-S3 board into a high-performance BLE/USB keyboard for the BlackBerry Q10 keyboard matrix. Optimized for iOS and iPadOS.
 
-## Keycap Layout Reference (from your design)
+## Keyboard Layout
 
-The key legend you shared can be represented as two logical layers:
+The firmware supports three logical layers:
 
-- Layer 1: normal letters / base keys
-- Layer 2: symbol layer (triggered by the `sym` key in firmware)
+- **Layer 1 (Base)**: Normal letters.
+- **Layer 2 (Symbols)**: Triggered by a **single press** of the `SYM` key.
+- **Layer 3 (Navigation)**: Triggered by a **double tap** of the `SYM` key. Includes arrow keys.
 
-### Layer 1 (Base)
+### Key Mapping Reference
 
+#### Layer 1 (Base)
 ```text
 Q W E R T Y U I O P
 A S D F G H J K L Backspace
 Shift Z X C V B N M ; Enter
-Ctrl Alt Space Sym(Layer2) aA(Layer3)
+Cmd(Alt) Space Sym(L2/L3) 
 ```
 
-### Layer 2 (Symbols on keycaps)
-
+#### Layer 2 (Symbols)
 ```text
 # 1 2 3 ( ) - - + @
 * 4 5 6 / : ; ' " Backspace
 Shift 7 8 9 ? ! , . $ Enter
-Ctrl 0 Space Sym(Layer2) aA(Layer3)
+Cmd(Alt) 0 Space Sym(L2/L3)
 ```
 
-Notes:
+#### Layer 3 (Navigation)
+```text
+.  UP .  LEFT .  .  .  .  .  .
+.  DOWN RIGHT .  .  .  .  .  .  .
+.  .  .  .  .  .  .  .  .  .
+```
 
-- Current firmware uses toggle-to-activate Layer 2 behavior: press `sym` once to enter Layer 2, press again to exit.
-- If a key has no Layer 2 mapping in firmware, it falls back to Layer 1 output.
-- Ctrl is a hold modifier on `ROW7/COL2`.
-- Both left and right Shift keys are enabled as hold modifiers.
-- Because ROW7 is damaged on this hardware, `F/J/K` are currently emitted by long-press fallback on `D/H/L`.
-- The same fallback also works on Layer 2: long press `5/:/"` emits `6/;/'`.
+## Features & Optimizations
 
-## Implemented Today
+### 1. iOS Command (⌘) Modifier
+- The **Alt** key is mapped to the **Command (GUI)** modifier.
+- Supports instant shortcuts: `Alt + C` (Copy), `Alt + V` (Paste), `Alt + Space` (Spotlight).
 
-- BLE HID keyboard output using ESP32 BLE Keyboard.
-- USB HID keyboard output enabled in parallel with BLE.
-- NimBLE backend enabled for better ESP32-S3 compatibility.
-- Matrix scan for 7 rows x 5 columns.
-- Long-press fallback mapping for broken ROW7 keys:
-  - long press `D` -> `F`
-  - long press `H` -> `J`
-  - long press `L` -> `K`
-- Shift support as a true HID modifier (both left and right Shift keys work; host can detect Shift state for shortcuts/IME switching).
-- Enter key mapping to HID Return.
-- Backspace key mapping fixed to matrix `ROW4/COL5`.
-- Symbol key support using press-to-toggle layer selection.
-- Ctrl hold modifier support on `ROW7/COL2`.
+### 2. Smart Tab Trigger
+- **Long Press Alt**: Sends a **Tab** signal.
+- **Intelligent Conflict Resolution**:
+    - If used as a modifier (e.g., `Alt + C`), the Tab trigger is cancelled.
+    - If long-pressed alone, the Command signal is released *before* sending Tab to ensure a "clean" Tab output (preventing accidental App Switcher activation if not desired).
 
-## Connectivity Behavior
+### 3. Hardware Workaround (Broken ROW7)
+- Due to a hardware issue where ROW7 is disconnected, `F`, `J`, and `K` are inaccessible directly.
+- **Workaround**: 
+    - Long press `D` -> `F`
+    - Long press `H` -> `J`
+    - Long press `L` -> `K`
+- This fallback works in both Layer 1 and Layer 2 (e.g., long press `5` -> `6`).
 
-- Key events are sent to USB HID and BLE HID at the same time.
-- BLE bonds are preserved across reboots, so the keyboard auto-reconnects to previously paired hosts.
-
-## Hardware Notes
-
-- If ROW7 is physically open (no continuity), `F/J/K` cannot be read directly.
-- The long-press fallback is a software workaround for that hardware issue.
+### 4. System Integration
+- **BLE Device Name**: `BBQ10KBD`.
+- **Dual Mode**: Sends key events to both BLE and USB HID simultaneously.
+- **Auto-Reconnect**: Preserves BLE bonds for seamless pairing.
 
 ## Build and Upload
 
-From this `firmware` folder:
+Requirement: [PlatformIO](https://platformio.org/)
 
 ```bash
+# Build project
 pio run
+
+# Upload to ESP32-S3
 pio run --target upload
 ```
 
 ## BLE Pairing
 
-1. Upload firmware and reboot the board.
-2. Pair with BLE device name: `BBQ10-BLE2`.
-3. Open a text box and test typing.
-4. If connected but typing does not work, remove old pairing and pair again.
-
-
-## ToDo list
-
-Megasafe
-
+1. Upload firmware and reboot.
+2. Search for BLE device: `BBQ10KBD`.
+3. If connection issues occur, forget the device on your host and pair again.
