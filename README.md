@@ -1,5 +1,28 @@
 # BBQ10KBD Firmware (ESP32-S3)
 
+## ESP32-Powered Blackberry Q10 Keyboard with Web Configurator
+
+I have always dreamed of building my own portable physical keyboard. After exploring the community, I was deeply inspired by the pioneering work of arturo182/BBQ10KBD and ZitaoTech/BBQ10-USB_BLE_Keyboard. Their research provided the foundation for this project, and I am incredibly grateful for their contributions to the open-source community.
+
+
+Project Overview
+This project is a lightweight, ESP32-based firmware implementation designed for the Blackberry Q10 keyboard module. Unlike traditional firmware that requires recompiling to change keymaps, this project focuses on a streamlined user experience through an integrated WiFi-based configuration interface.
+
+Key Features
+ESP32-Based: Lightweight and efficient firmware architecture.
+
+WiFi Web Configurator: No need to recompile the code. Simply connect to the keyboard’s WiFi to change settings on the fly.
+
+![image](https://github.com/user-attachments/assets/ae8b1524-0572-4314-abdb-6f2c4adfec81)
+
+![image](https://github.com/user-attachments/assets/fcecaf61-dc60-4fdc-9c34-d4b2fef50c74)
+
+Graphical Interaction: An intuitive web-based interface for effortless key mapping and macro configuration.
+
+Layer Customization: Fully supports custom layers, allowing you to define different key behaviors for various workflows or devices.
+
+This project is a work-in-progress, and I hope it serves as a useful tool for others looking to build their own custom portable devices.
+
 This firmware turns an ESP32-S3 board into a high-performance BLE/USB keyboard for the BlackBerry Q10 keyboard matrix. Optimized for iOS and iPadOS.
 
 ## 🚀 NEW: Dynamic Keyboard Configuration
