@@ -2,63 +2,61 @@
 
 This firmware turns an ESP32-S3 board into a high-performance BLE/USB keyboard for the BlackBerry Q10 keyboard matrix. Optimized for iOS and iPadOS.
 
+## 🚀 NEW: Dynamic Keyboard Configuration
+No more re-compiling! You can now customize your keyboard layout and shortcuts instantly over WiFi.
+
+### How to enter Config Mode
+1.  **Hold the `SYM` key for 10 seconds.**
+2.  The keyboard will temporarily disconnect Bluetooth and start a WiFi hotspot named **`BBQ10_Config`**.
+3.  Connect to the WiFi (Password: `12345678`).
+4.  A configuration page should **automatically pop up** (Captive Portal). If not, visit `http://192.168.4.1` in your browser.
+5.  Customize your keys and click **Save**.
+6.  Click **Reboot** to return to normal keyboard mode.
+
+---
+
 ## Keyboard Layout
 
-The firmware supports three logical layers:
+The firmware supports three logical layers by default, but all are fully customizable via the Web Dashboard:
 
 - **Layer 1 (Base)**: Normal letters.
 - **Layer 2 (Symbols)**: Triggered by a **single press** of the `SYM` key.
 - **Layer 3 (Navigation)**: Triggered by a **double tap** of the `SYM` key. Includes arrow keys.
 
-### Key Mapping Reference
+### Default Mapping Reference (Customizable)
 
 #### Layer 1 (Base)
 ```text
 Q W E R T Y U I O P
 A S D F G H J K L Backspace
 Shift Z X C V B N M ; Enter
-Cmd(Alt) Space Sym(L2/L3) 
-```
-
-#### Layer 2 (Symbols)
-```text
-# 1 2 3 ( ) - - + @
-* 4 5 6 / : ; ' " Backspace
-Shift 7 8 9 ? ! , . $ Enter
-Cmd(Alt) 0 Space Sym(L2/L3)
-```
-
-#### Layer 3 (Navigation)
-```text
-.  UP .  LEFT .  .  .  .  .  .
-.  DOWN RIGHT .  .  .  .  .  .  .
-.  .  .  .  .  .  .  .  .  .
+Ctrl(Mic) Alt(0) Space Sym(L2/L3) aA(Shift)
 ```
 
 ## Features & Optimizations
 
-### 1. iOS Command (⌘) Modifier
-- The **Alt** key is mapped to the **Command (GUI)** modifier.
+### 1. WiFi Web Dashboard
+- **Visual Mapping**: A modern, interactive UI that mirrors your physical keyboard layout.
+- **Layer Editing**: Change characters for Base and Symbol layers directly.
+- **Navigation Layer**: Map any key to special keycodes (Arrows, Home, End, etc.).
+- **Long Press Shortcuts**: Define custom behaviors for long-pressing keys (useful for hardware workarounds or macros).
+- **Captive Portal**: Automatically opens the config page upon WiFi connection.
+
+### 2. iOS Command (⌘) Modifier
+- The **Alt** key is mapped to the **Command (GUI)** modifier by default.
 - Supports instant shortcuts: `Alt + C` (Copy), `Alt + V` (Paste), `Alt + Space` (Spotlight).
 
-### 2. Smart Tab Trigger
+### 3. Smart Tab Trigger
 - **Long Press Alt**: Sends a **Tab** signal.
-- **Intelligent Conflict Resolution**:
-    - If used as a modifier (e.g., `Alt + C`), the Tab trigger is cancelled.
-    - If long-pressed alone, the Command signal is released *before* sending Tab to ensure a "clean" Tab output (preventing accidental App Switcher activation if not desired).
+- **Intelligent Conflict Resolution**: Cancel Tab if Alt is used as a modifier.
 
-### 3. Hardware Workaround (Broken ROW7)
-- Due to a hardware issue where ROW7 is disconnected, `F`, `J`, and `K` are inaccessible directly.
-- **Workaround**: 
-    - Long press `D` -> `F`
-    - Long press `H` -> `J`
-    - Long press `L` -> `K`
-- This fallback works in both Layer 1 and Layer 2 (e.g., long press `5` -> `6`).
+### 4. Hardware Fallbacks
+- Optimized for boards with broken matrix lines (e.g., long press `D` for `F`). These are now configurable via the dashboard!
 
-### 4. System Integration
-- **BLE Device Name**: `BBQ10KBD`.
+### 5. System Integration
 - **Dual Mode**: Sends key events to both BLE and USB HID simultaneously.
 - **Auto-Reconnect**: Preserves BLE bonds for seamless pairing.
+- **Persistent Storage**: Settings are stored in **LittleFS** as a JSON file.
 
 ## Build and Upload
 
@@ -68,12 +66,15 @@ Requirement: [PlatformIO](https://platformio.org/)
 # Build project
 pio run
 
-# Upload to ESP32-S3
-pio run --target upload
+# Upload firmware
+pio run -t upload
+
+# Upload filesystem data (Required for the Web Dashboard)
+pio run -t uploadfs
 ```
 
-## BLE Pairing
-
-1. Upload firmware and reboot.
-2. Search for BLE device: `BBQ10KBD`.
-3. If connection issues occur, forget the device on your host and pair again.
+## Technical Details
+- **Framework**: Arduino ESP32
+- **Filesystem**: LittleFS
+- **Networking**: AsyncWebServer with Captive Portal support
+- **Config**: JSON serialization via ArduinoJson

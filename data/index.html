@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BBQ10 Keyboard Configurator</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+
+        :root {
+            --bg: #0f172a;
+            --surface: rgba(30, 41, 59, 0.7);
+            --border: rgba(255, 255, 255, 0.1);
+            --primary: #3b82f6;
+            --primary-glow: rgba(59, 130, 246, 0.5);
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --key-bg: rgba(255, 255, 255, 0.05);
+            --key-hover: rgba(255, 255, 255, 0.1);
+            --key-active: rgba(59, 130, 246, 0.4);
+        }
+
+        body {
+            margin: 0;
+            padding: 2rem;
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            background-image: radial-gradient(circle at 50% -20%, #1e1b4b, var(--bg));
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            font-weight: 800;
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        p.subtitle {
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            max-width: 1000px;
+            width: 100%;
+            align-items: center;
+        }
+
+        .keyboard-panel {
+            width: 100%;
+            max-width: 800px;
+            background: var(--surface);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 1.5rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            overflow-x: auto;
+        }
+
+        .editor-panel {
+            width: 100%;
+            max-width: 600px;
+            background: var(--surface);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            opacity: 0.5;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        .editor-panel.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .keyboard-row {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .key {
+            width: 3.5rem;
+            height: 3.5rem;
+            background: var(--key-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            position: relative;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            user-select: none;
+        }
+
+        .key:hover {
+            background: var(--key-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        }
+
+        .key.selected {
+            background: var(--key-active);
+            border-color: var(--primary);
+            box-shadow: 0 0 20px var(--primary-glow);
+        }
+
+        .key .base {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .key .sym {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            position: absolute;
+            top: 0.25rem;
+            left: 0.25rem;
+        }
+
+        .key.wide { width: 5.5rem; }
+        .key.space { width: 14rem; }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        label {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        input {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px var(--primary-glow);
+        }
+
+        .actions {
+            display: flex;
+            gap: 1rem;
+            margin-top: auto;
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            border: none;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            flex: 1;
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+            box-shadow: 0 0 15px var(--primary-glow);
+        }
+
+        .btn-secondary {
+            background: var(--key-bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--key-hover);
+        }
+
+        #save-status {
+            margin-top: 1rem;
+            text-align: center;
+            font-size: 0.875rem;
+            height: 1rem;
+            color: #10b981;
+        }
+
+        /* Loading overlay */
+        .loader {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: var(--bg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            transition: opacity 0.5s;
+        }
+    </style>
+</head>
+<body>
+    <div class="loader" id="loader">
+        <h2 style="background: linear-gradient(135deg, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Loading Configuration...</h2>
+    </div>
+
+    <h1>BBQ10 Configurator</h1>
+    <p class="subtitle">Customize your layout instantly over WiFi</p>
+
+    <div class="container">
+        <div class="keyboard-panel" id="keyboard">
+            <!-- Rendered by JS -->
+        </div>
+
+        <div class="editor-panel" id="editor">
+            <h3 style="margin:0; font-size: 1.5rem;">Edit Key</h3>
+            
+            <div class="form-group">
+                <label>Base Layer</label>
+                <input type="text" id="inp-base" maxlength="1">
+            </div>
+            
+            <div class="form-group">
+                <label>Symbol Layer (Layer 2)</label>
+                <input type="text" id="inp-sym" maxlength="1">
+            </div>
+            
+            <div class="form-group">
+                <label>Navigation Layer (Layer 3)</label>
+                <input type="number" id="inp-l3" placeholder="Keycode (e.g. 218 for Up)">
+            </div>
+
+            <div style="height: 1px; background: var(--border); margin: 1rem 0;"></div>
+            <label>Long Press Shortcut (Optional)</label>
+
+            <div style="display:flex; gap:1rem;">
+                <div class="form-group" style="flex:1;">
+                    <label style="font-size:0.7rem">Base Short</label>
+                    <input type="text" id="lp-bs" maxlength="1">
+                </div>
+                <div class="form-group" style="flex:1;">
+                    <label style="font-size:0.7rem">Base Long</label>
+                    <input type="text" id="lp-bl" maxlength="1">
+                </div>
+            </div>
+
+            <div class="actions">
+                <button class="btn-primary" onclick="applyEdits()">Apply</button>
+            </div>
+        </div>
+    </div>
+
+    <div style="margin-top: 2rem; display: flex; gap: 1rem;">
+        <button class="btn-primary" style="padding: 1rem 3rem;" onclick="saveConfig()">Save to Keyboard</button>
+        <button class="btn-secondary" style="padding: 1rem 2rem;" onclick="reboot()">Reboot</button>
+    </div>
+    <div id="save-status"></div>
+
+    <script>
+        let config = null;
+        let selectedKey = null;
+
+        const visualMap = [
+            [{c:0,r:0,l:'Q'}, {c:0,r:1,l:'W'}, {c:1,r:0,l:'E'}, {c:2,r:0,l:'R'}, {c:2,r:2,l:'T'}, {c:3,r:2,l:'Y'}, {c:3,r:0,l:'U'}, {c:4,r:2,l:'I'}, {c:4,r:0,l:'O'}, {c:1,r:3,l:'P'}],
+            [{c:0,r:3,l:'A'}, {c:1,r:1,l:'S'}, {c:1,r:2,l:'D'}, {c:2,r:6,l:'F'}, {c:2,r:1,l:'G'}, {c:3,r:1,l:'H'}, {c:3,r:6,l:'J'}, {c:4,r:6,l:'K'}, {c:4,r:1,l:'L'}, {c:4,r:3,l:'Bksp', cls:'wide'}],
+            [{c:1,r:6,l:'Shift', cls:'wide'}, {c:1,r:5,l:'Z'}, {c:1,r:4,l:'X'}, {c:2,r:5,l:'C'}, {c:2,r:4,l:'V'}, {c:3,r:4,l:'B'}, {c:3,r:5,l:'N'}, {c:4,r:5,l:'M'}, {c:4,r:4,l:'$'}, {c:3,r:3,l:'Enter', cls:'wide'}],
+            [{c:0,r:4,l:'Ctrl', cls:'wide'}, {c:0,r:6,l:'Alt', cls:'wide'}, {c:0,r:5,l:'Space', cls:'space'}, {c:0,r:2,l:'Sym', cls:'wide'}, {c:2,r:3,l:'aA', cls:'wide'}]
+        ];
+
+        async function fetchConfig() {
+            try {
+                const res = await fetch('/api/config');
+                config = await res.json();
+                renderKeyboard();
+                document.getElementById('loader').style.opacity = '0';
+                setTimeout(() => document.getElementById('loader').style.display = 'none', 500);
+            } catch (e) {
+                console.error(e);
+                alert('Failed to load configuration. Make sure you are connected to the BBQ10_Config WiFi.');
+            }
+        }
+
+        function getChar(layer, c, r) {
+            if (!config || !config.layers) return '';
+            const val = config.layers[layer][c][r];
+            return val ? val : '';
+        }
+
+        function getShortcut(c, r) {
+            if (!config || !config.shortcuts) return null;
+            return config.shortcuts.find(s => s.col === c && s.row === r);
+        }
+
+        function renderKeyboard() {
+            const kb = document.getElementById('keyboard');
+            kb.innerHTML = '';
+
+            visualMap.forEach(row => {
+                const rowDiv = document.createElement('div');
+                rowDiv.className = 'keyboard-row';
+                
+                row.forEach(key => {
+                    const btn = document.createElement('div');
+                    btn.className = 'key ' + (key.cls || '');
+                    btn.onclick = () => selectKey(key.c, key.r, btn);
+
+                    const base = getChar('base', key.c, key.r);
+                    const sym = getChar('symbol', key.c, key.r);
+
+                    btn.innerHTML = `
+                        <div class="sym">${sym || ''}</div>
+                        <div class="base">${base || key.l}</div>
+                    `;
+                    rowDiv.appendChild(btn);
+                });
+                kb.appendChild(rowDiv);
+            });
+        }
+
+        function selectKey(c, r, el) {
+            document.querySelectorAll('.key').forEach(k => k.classList.remove('selected'));
+            el.classList.add('selected');
+            selectedKey = {c, r};
+            
+            document.getElementById('editor').classList.add('active');
+            
+            document.getElementById('inp-base').value = getChar('base', c, r);
+            document.getElementById('inp-sym').value = getChar('symbol', c, r);
+            document.getElementById('inp-l3').value = getChar('layer3', c, r);
+
+            const sc = getShortcut(c, r);
+            document.getElementById('lp-bs').value = sc && sc.baseShort ? sc.baseShort : '';
+            document.getElementById('lp-bl').value = sc && sc.baseLong ? sc.baseLong : '';
+        }
+
+        function applyEdits() {
+            if (!selectedKey) return;
+            const {c, r} = selectedKey;
+            
+            config.layers.base[c][r] = document.getElementById('inp-base').value || null;
+            config.layers.symbol[c][r] = document.getElementById('inp-sym').value || null;
+            
+            const l3 = parseInt(document.getElementById('inp-l3').value);
+            config.layers.layer3[c][r] = isNaN(l3) ? 0 : l3;
+
+            // Handle shortcut
+            const bs = document.getElementById('lp-bs').value;
+            const bl = document.getElementById('lp-bl').value;
+            
+            if (bs || bl) {
+                let sc = config.shortcuts.find(s => s.col === c && s.row === r);
+                if (!sc) {
+                    sc = {col: c, row: r};
+                    config.shortcuts.push(sc);
+                }
+                sc.baseShort = bs;
+                sc.baseLong = bl;
+            } else {
+                config.shortcuts = config.shortcuts.filter(s => s.col !== c || s.row !== r);
+            }
+
+            renderKeyboard();
+        }
+
+        async function saveConfig() {
+            const status = document.getElementById('save-status');
+            status.innerText = 'Saving...';
+            status.style.color = '#3b82f6';
+            
+            try {
+                const res = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(config)
+                });
+                if (res.ok) {
+                    status.innerText = 'Configuration saved successfully!';
+                    status.style.color = '#10b981';
+                    setTimeout(() => status.innerText = '', 3000);
+                } else throw new Error();
+            } catch (e) {
+                status.innerText = 'Failed to save configuration!';
+                status.style.color = '#ef4444';
+            }
+        }
+
+        async function reboot() {
+            if(confirm("Are you sure you want to reboot the keyboard? It will exit Config Mode.")) {
+                await fetch('/api/reboot', {method: 'POST'});
+                alert("Keyboard is rebooting...");
+            }
+        }
+
+        // Init
+        fetchConfig();
+    </script>
+</body>
+</html>

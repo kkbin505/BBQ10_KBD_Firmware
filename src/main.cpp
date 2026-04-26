@@ -26,6 +26,9 @@
 #include <USBHIDKeyboard.h>
 #undef KeyReport
 
+#include "ConfigManager.h"
+#include "WebManager.h"
+
 BleKeyboard Keyboard("BBQ10KBD", "BBQ10KBD", 100);
 USBHIDKeyboard UsbKeyboard;
 
@@ -69,38 +72,13 @@ unsigned long lastBleDisconnectTime = 0;
 bool isInLightSleep = false;
 bool wasConnectedPreviously = true;
 
-// [col][row]
-const char keyboard[COL_COUNT][ROW_COUNT] = {
-    {'q', 'w', '\0', 'a', '\0', ' ', '0'}, {'e', 's', 'd', 'p', 'x', 'z', '\0'},
-    {'r', 'g', 't', '\0', 'v', 'c', 'f'},  {'u', 'h', 'y', '\0', 'b', 'n', 'j'},
-    {'o', 'l', 'i', '\0', '$', 'm', 'k'},
-};
+// Config loaded from LittleFS
 
-const char keyboardSymbol[COL_COUNT][ROW_COUNT] = {
-    {'#', '1', '\0', '*', '\0', '\0', '0'},
-    {'2', '4', '5', '@', '8', '7', '\0'},
-    {'3', '/', '(', '\0', '?', '9', '6'},
-    {'_', ':', ')', '\0', '!', ',', ';'},
-    {'+', '"', '-', '\0', '\0', '.', '\''},
-};
 
-const uint8_t keyboardLayer3[COL_COUNT][ROW_COUNT] = {
-    {'\0', KEY_UP_ARROW, '\0', KEY_LEFT_ARROW, '\0', '\0', '\0'},
-    {'\0', KEY_DOWN_ARROW, KEY_RIGHT_ARROW, '\0', '\0', '\0', '\0'},
-    {'\0', '\0', '\0', '\0', '\0', '\0', '\0'},
-    {'\0', '\0', '\0', '\0', '\0', '\0', '\0'},
-    {'\0', '\0', '\0', '\0', '\0', '\0', '\0'},
-};
 
-// Special keys: TAB, ENTER, ESC, etc.
-// 0 means no special key at that position
-const uint8_t keyboardSpecial[COL_COUNT][ROW_COUNT] = {
-    {0, 0, 0, 0, 0, 0, 0}, // col 0: ALT no longer Tab here
-    {0, 0, 0, 0, 0, 0, 0}, // col 1
-    {0, 0, 0, 0, 0, 0, 0}, // col 2
-    {0, 0, 0, 0, 0, 0, 0}, // col 3
-    {0, 0, 0, 0, 0, 0, 0}, // col 4
-};
+
+
+
 
 bool ctrlModifierActive = false;
 bool shiftModifierActive = false;
@@ -115,25 +93,7 @@ bool layer2LastPressed = false;
 unsigned long lastSymPressTime = 0;
 constexpr unsigned long DOUBLE_TAP_MS = 300;
 
-struct LongPressKey {
-  size_t col;
-  size_t row;
-  char baseShortOutput;
-  char baseLongOutput;
-  char layer2ShortOutput;
-  char layer2LongOutput;
-  bool tracking;
-  bool longSent;
-  uint8_t layerAtPress;
-  unsigned long pressStart;
-};
 
-LongPressKey longPressKeys[] = {
-    {D_COL, D_ROW, 'd', 'f', '5', '6', false, false, 0, 0},
-    {H_COL, H_ROW, 'h', 'j', ':', ';', false, false, 0, 0},
-    {L_COL, L_ROW, 'l', 'k', '"', '\'', false, false, 0, 0},
-    {ALT_COL, ALT_ROW, '\0', 0x09, '\0', 0x09, false, false, 0, 0},
-};
 
 // Forward declarations for power management functions
 void updateLastActivity();
@@ -151,9 +111,9 @@ bool keyActive(size_t colIndex, size_t rowIndex) {
 }
 
 bool isPrintableKey(size_t colIndex, size_t rowIndex) {
-  return keyboard[colIndex][rowIndex] != '\0' ||
-         keyboardSymbol[colIndex][rowIndex] != '\0' ||
-         keyboardLayer3[colIndex][rowIndex] != '\0';
+  return ConfigManager::keyboard[colIndex][rowIndex] != '\0' ||
+         ConfigManager::keyboardSymbol[colIndex][rowIndex] != '\0' ||
+         ConfigManager::keyboardLayer3[colIndex][rowIndex] != '\0';
 }
 
 bool isLayer2Active() { return currentLayer == 1; }
@@ -161,8 +121,9 @@ bool isLayer3Active() { return currentLayer == 2; }
 
 void updateLayer2Toggle() {
   const bool symPressed = keyActive(LAYER2_COL, LAYER2_ROW);
+  const unsigned long now = millis();
+
   if (symPressed && !layer2LastPressed) {
-    const unsigned long now = millis();
     const bool isQuickTap = (now - lastSymPressTime < DOUBLE_TAP_MS);
 
     switch (currentLayer) {
@@ -178,19 +139,25 @@ void updateLayer2Toggle() {
     }
     lastSymPressTime = now;
   }
+
+  // 10 second hold for config mode
+  if (symPressed && (now - lastSymPressTime > 10000)) {
+     WebManager::startConfigMode();
+  }
+
   layer2LastPressed = symPressed;
 }
 
 bool isLongPressManagedKey(size_t colIndex, size_t rowIndex) {
   // If Layer 3 has an override for this key, don't treat it as long-press
   // managed so that printMatrix can handle it directly.
-  if (currentLayer == 2 && keyboardLayer3[colIndex][rowIndex] != 0) {
+  if (currentLayer == 2 && ConfigManager::keyboardLayer3[colIndex][rowIndex] != 0) {
     return false;
   }
 
-  for (size_t i = 0; i < (sizeof(longPressKeys) / sizeof(longPressKeys[0]));
+  for (size_t i = 0; i < ConfigManager::longPressKeys.size();
        i++) {
-    if (longPressKeys[i].col == colIndex && longPressKeys[i].row == rowIndex) {
+    if (ConfigManager::longPressKeys[i].col == colIndex && ConfigManager::longPressKeys[i].row == rowIndex) {
       return true;
     }
   }
@@ -278,10 +245,10 @@ void emitKey(char output) {
     cmdUsedWithOtherKey = true;
     // Cancel long-press for ALT if it's being used as a modifier for another
     // key
-    for (size_t i = 0; i < (sizeof(longPressKeys) / sizeof(longPressKeys[0]));
+    for (size_t i = 0; i < ConfigManager::longPressKeys.size();
          i++) {
-      if (longPressKeys[i].col == ALT_COL && longPressKeys[i].row == ALT_ROW) {
-        longPressKeys[i].tracking = false;
+      if (ConfigManager::longPressKeys[i].col == ALT_COL && ConfigManager::longPressKeys[i].row == ALT_ROW) {
+        ConfigManager::longPressKeys[i].tracking = false;
         break;
       }
     }
@@ -304,10 +271,10 @@ void emitSpecialKey(uint8_t keycode) {
     cmdUsedWithOtherKey = true;
     // Cancel long-press for ALT if it's being used as a modifier for another
     // key
-    for (size_t i = 0; i < (sizeof(longPressKeys) / sizeof(longPressKeys[0]));
+    for (size_t i = 0; i < ConfigManager::longPressKeys.size();
          i++) {
-      if (longPressKeys[i].col == ALT_COL && longPressKeys[i].row == ALT_ROW) {
-        longPressKeys[i].tracking = false;
+      if (ConfigManager::longPressKeys[i].col == ALT_COL && ConfigManager::longPressKeys[i].row == ALT_ROW) {
+        ConfigManager::longPressKeys[i].tracking = false;
         break;
       }
     }
@@ -323,9 +290,9 @@ void processLongPressFallbacks() {
   const unsigned long now = millis();
   const uint8_t activeLayer = currentLayer;
 
-  for (size_t i = 0; i < (sizeof(longPressKeys) / sizeof(longPressKeys[0]));
+  for (size_t i = 0; i < ConfigManager::longPressKeys.size();
        i++) {
-    LongPressKey &key = longPressKeys[i];
+    LongPressKey &key = ConfigManager::longPressKeys[i];
     const bool active = keyActive(key.col, key.row);
 
     if (active) {
@@ -410,14 +377,14 @@ void printMatrix() {
         continue;
       }
 
-      if (activeLayer == 1 && keyboardSpecial[colIndex][rowIndex] != 0) {
-        emitSpecialKey(keyboardSpecial[colIndex][rowIndex]);
+      if (activeLayer == 1 && ConfigManager::keyboardSpecial[colIndex][rowIndex] != 0) {
+        emitSpecialKey(ConfigManager::keyboardSpecial[colIndex][rowIndex]);
         continue;
       }
 
       // Check for Navigation keys in Layer 3
-      if (activeLayer == 2 && keyboardLayer3[colIndex][rowIndex] != 0) {
-        emitSpecialKey(keyboardLayer3[colIndex][rowIndex]);
+      if (activeLayer == 2 && ConfigManager::keyboardLayer3[colIndex][rowIndex] != 0) {
+        emitSpecialKey(ConfigManager::keyboardLayer3[colIndex][rowIndex]);
         continue;
       }
 
@@ -429,12 +396,12 @@ void printMatrix() {
         continue;
       }
 
-      char output = keyboard[colIndex][rowIndex];
-      if (activeLayer == 1 && keyboardSymbol[colIndex][rowIndex] != '\0') {
-        output = keyboardSymbol[colIndex][rowIndex];
+      char output = ConfigManager::keyboard[colIndex][rowIndex];
+      if (activeLayer == 1 && ConfigManager::keyboardSymbol[colIndex][rowIndex] != '\0') {
+        output = ConfigManager::keyboardSymbol[colIndex][rowIndex];
       } else if (activeLayer == 2 &&
-                 keyboardLayer3[colIndex][rowIndex] != '\0') {
-        output = (char)keyboardLayer3[colIndex][rowIndex];
+                 ConfigManager::keyboardLayer3[colIndex][rowIndex] != '\0') {
+        output = (char)ConfigManager::keyboardLayer3[colIndex][rowIndex];
       }
 
       if (output == '\0') {
@@ -498,6 +465,9 @@ void enterLightSleep() {
 }
 
 void setup() {
+  ConfigManager::begin();
+  WebManager::begin();
+  
   // Configure CPU frequency and dynamic power management
   // Set max frequency to 80MHz, min to 20MHz (auto-scales when idle)
   esp_pm_config_esp32s3_t pm_config = {
@@ -527,6 +497,12 @@ void setup() {
 }
 
 void loop() {
+  if (WebManager::isConfigMode()) {
+    WebManager::handle();
+    delay(10);
+    return;
+  }
+
   readMatrix();
   updateLayer2Toggle();
   updateShiftModifier();
