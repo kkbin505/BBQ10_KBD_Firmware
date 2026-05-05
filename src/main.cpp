@@ -1,11 +1,9 @@
 #include <Arduino.h>
-#include <ctype.h>
 #include <BleKeyboard.h>
 #include <NimBLEDevice.h>
-#include <EEPROM.h>
-#include "ble_profile_manager.h"
-#include "power_manager.h"
-#include "device_switcher.h"
+#include <ctype.h>
+#include <esp_pm.h>
+#include <esp_sleep.h>
 
 #ifdef HID_SUBCLASS_NONE
 #undef HID_SUBCLASS_NONE
@@ -23,15 +21,17 @@
 #undef HID_PROTOCOL_MOUSE
 #endif
 
-// ============ DEBUGGING MODE: USB HID DISABLED ============
-// Disabled USB HID for serial debugging of BLE switching
-// #include <USB.h>
-// #define KeyReport UsbKeyReport
-// #include <USBHIDKeyboard.h>
-// #undef KeyReport
+#include <USB.h>
+#define KeyReport UsbKeyReport
+#include <USBHIDKeyboard.h>
+#undef KeyReport
 
-BleKeyboard Keyboard("BBQ10-BLE2", "BBQ10", 100);
-// USBHIDKeyboard UsbKeyboard;  // DISABLED FOR DEBUGGING
+#include "ConfigManager.h"
+#include "WebManager.h"
+#include "StatusLED.h"
+
+BleKeyboard Keyboard("BBQ10KBD", "BBQ10KBD", 100);
+USBHIDKeyboard UsbKeyboard;
 
 constexpr uint8_t rows[] = {6, 7, 8, 9, 10, 11, 12};
 constexpr uint8_t cols[] = {1, 2, 3, 4, 5};
@@ -53,88 +53,55 @@ constexpr size_t L_COL = 4;
 constexpr size_t L_ROW = 1;
 constexpr size_t BACKSPACE_COL = 4;
 constexpr size_t BACKSPACE_ROW = 3;
-// NOTE: LEFT_SHIFT was at [0][4] which conflicts with ALT - removed this constant
-// Only RIGHT_SHIFT is used
+constexpr size_t LEFT_SHIFT_COL = 1;
+constexpr size_t LEFT_SHIFT_ROW = 6;
 constexpr size_t RIGHT_SHIFT_COL = 2;
 constexpr size_t RIGHT_SHIFT_ROW = 3;
-constexpr size_t CTRL_COL = 1;
-constexpr size_t CTRL_ROW = 6;
+// constexpr size_t CTRL_COL = 1;
+// constexpr size_t CTRL_ROW = 6;
 constexpr size_t LAYER2_COL = 0;
 constexpr size_t LAYER2_ROW = 2;
 constexpr size_t ALT_COL = 0;
 constexpr size_t ALT_ROW = 4;
-// [col][row]
-const char keyboard[COL_COUNT][ROW_COUNT] = {
-  {'q', 'w', '\0', 'a', '\0', ' ', '\0'},
-  {'e', 's', 'd', 'p', 'x', 'z', '\0'},
-  {'r', 'g', 't', '\0', 'v', 'c', 'f'},
-  {'u', 'h', 'y', '\0', 'b', 'n', 'j'},
-  {'o', 'l', 'i', '\0', '$', 'm', 'k'},
-};
 
-const char keyboardSymbol[COL_COUNT][ROW_COUNT] = {
-  {'#', '1', '\0', '*', '\0', '\0', '0'},
-  {'2', '4', '5', '@', '8', '7', '\0'},
-  {'3', '/', '(', '\0', '?', '9', '6'},
-  {'_', ':', ')', '\0', '!', ',', ';'},
-  {'+', '"', '-', '\0', '\0', '.', '\''},
-};
+// Power management configuration
+constexpr unsigned long INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+constexpr unsigned long BLE_DISCONNECT_GRACE_PERIOD_MS =
+    30 * 1000; // 30 seconds
+unsigned long lastActivityTime = 0;
+unsigned long lastBleDisconnectTime = 0;
+bool isInLightSleep = false;
+bool wasConnectedPreviously = true;
 
-// Special keys: TAB, ENTER, ESC, etc.
-// 0 means no special key at that position
-const uint8_t keyboardSpecial[COL_COUNT][ROW_COUNT] = {
-  {0, 0, 0, 0, 0, 0, 0},              // col 0: ALT is handled separately, not here
-  {0, 0, 0, 0, 0, 0, 0},              // col 1
-  {0, 0, 0, 0, 0, 0, 0},              // col 2
-  {0, 0, 0, 0, 0, 0, 0},              // col 3
-  {0, 0, 0, 0, 0, 0, 0},              // col 4
-};
+// Config loaded from LittleFS
+
+
+
+
+
+
 
 bool ctrlModifierActive = false;
 bool shiftModifierActive = false;
 bool shiftUsedWithOtherKey = false;
+bool cmdModifierActive = false;
+bool cmdUsedWithOtherKey = false;
 
 // Layer 2 toggle state (SYM key)
-bool layer2Toggle = false;
+// Layer state: 0=Base, 1=Symbols, 2=Navigation
+uint8_t currentLayer = 0;
 bool layer2LastPressed = false;
+unsigned long lastSymPressTime = 0;
+constexpr unsigned long DOUBLE_TAP_MS = 300;
 
-// Device switching - ALT + 1/2/3 to switch devices
-// We'll use a special key combination for device switching
-bool altModifierActive = false;
-const size_t SWITCH_DEVICE_COL = 0;  // ALT position
-const size_t SWITCH_DEVICE_ROW = 4;
 
-// Track previous BLE connection state for state changes
-bool prevBleConnected = false;
-// BLE connection state filtering - add debounce for stability
-unsigned long bleStateChangeTime = 0;
-unsigned long bleCurrentStateDetectTime = 0;
-bool bleCurrentState = false;
-const unsigned long BLE_STATE_DEBOUNCE_MS = 500;  // 500ms debounce to filter noise
 
-// Track if device switching was handled to prevent key repeat
-bool deviceSwitchHandled = false;
-size_t switchKeyCol = 0;
-size_t switchKeyRow = 0;
-
-struct LongPressKey {
-  size_t col;
-  size_t row;
-  char baseShortOutput;
-  char baseLongOutput;
-  char layer2ShortOutput;
-  char layer2LongOutput;
-  bool tracking;
-  bool longSent;
-  bool layer2AtPress;
-  unsigned long pressStart;
-};
-
-LongPressKey longPressKeys[] = {
-  {D_COL, D_ROW, 'd', 'f', '5', '6', false, false, false, 0},
-  {H_COL, H_ROW, 'h', 'j', ':', ';', false, false, false, 0},
-  {L_COL, L_ROW, 'l', 'k', '"', '\'', false, false, false, 0},
-};
+// Forward declarations for power management functions
+void updateLastActivity();
+bool isBleConnected();
+void updateBleDisconnectTimer();
+bool shouldEnterSleep();
+void enterLightSleep();
 
 bool keyPressed(size_t colIndex, size_t rowIndex) {
   return changedValue[colIndex][rowIndex] && keys[colIndex][rowIndex];
@@ -145,73 +112,120 @@ bool keyActive(size_t colIndex, size_t rowIndex) {
 }
 
 bool isPrintableKey(size_t colIndex, size_t rowIndex) {
-  return keyboard[colIndex][rowIndex] != '\0' || keyboardSymbol[colIndex][rowIndex] != '\0';
+  return ConfigManager::keyboard[colIndex][rowIndex] != '\0' ||
+         ConfigManager::keyboardSymbol[colIndex][rowIndex] != '\0' ||
+         ConfigManager::keyboardLayer3[colIndex][rowIndex] != '\0';
 }
 
-bool isLayer2Active() {
-  return layer2Toggle;
-}
+bool isLayer2Active() { return currentLayer == 1; }
+bool isLayer3Active() { return currentLayer == 2; }
 
 void updateLayer2Toggle() {
   const bool symPressed = keyActive(LAYER2_COL, LAYER2_ROW);
+  const unsigned long now = millis();
+
   if (symPressed && !layer2LastPressed) {
-    // SYM key just pressed — toggle Layer 2
-    layer2Toggle = !layer2Toggle;
-    Serial.printf("[DEBUG] SYM pressed - Layer 2 now: %s\n", layer2Toggle ? "ON" : "OFF");
+    const bool isQuickTap = (now - lastSymPressTime < DOUBLE_TAP_MS);
+
+    switch (currentLayer) {
+    case 1: // From Layer 2 (Symbols)
+      currentLayer = isQuickTap ? 2 : 0;
+      break;
+    case 2: // From Layer 3 (Navigation)
+      currentLayer = 0;
+      break;
+    default: // From Layer 1 (Base)
+      currentLayer = isQuickTap ? 2 : 1;
+      break;
+    }
+    lastSymPressTime = now;
   }
+
+  // 10 second hold for config mode
+  if (symPressed && (now - lastSymPressTime > 10000)) {
+     WebManager::startConfigMode();
+  }
+
   layer2LastPressed = symPressed;
 }
 
 bool isLongPressManagedKey(size_t colIndex, size_t rowIndex) {
-  for (size_t i = 0; i < (sizeof(longPressKeys) / sizeof(longPressKeys[0])); i++) {
-    if (longPressKeys[i].col == colIndex && longPressKeys[i].row == rowIndex) {
+  // If Layer 3 has an override for this key, don't treat it as long-press
+  // managed so that printMatrix can handle it directly.
+  if (currentLayer == 2 && ConfigManager::keyboardLayer3[colIndex][rowIndex] != 0) {
+    return false;
+  }
+
+  for (size_t i = 0; i < ConfigManager::longPressKeys.size();
+       i++) {
+    if (ConfigManager::longPressKeys[i].col == colIndex && ConfigManager::longPressKeys[i].row == rowIndex) {
       return true;
     }
   }
   return false;
 }
 
-void updateCtrlModifier() {
-  const bool ctrlHeldNow = keyActive(CTRL_COL, CTRL_ROW);
+// void updateCtrlModifier() {
+//   const bool ctrlHeldNow = keyActive(CTRL_COL, CTRL_ROW);
 
-  if (ctrlHeldNow && !ctrlModifierActive) {
+//   if (ctrlHeldNow && !ctrlModifierActive) {
+//     if (Keyboard.isConnected()) {
+//       Keyboard.press(KEY_LEFT_CTRL);
+//     }
+//     UsbKeyboard.press(KEY_LEFT_CTRL);
+//     ctrlModifierActive = true;
+//   } else if (!ctrlHeldNow && ctrlModifierActive) {
+//     if (Keyboard.isConnected()) {
+//       Keyboard.release(KEY_LEFT_CTRL);
+//     }
+//     UsbKeyboard.release(KEY_LEFT_CTRL);
+//     ctrlModifierActive = false;
+//   }
+// }
+
+void updateCmdModifier() {
+  const bool cmdHeldNow = keyActive(ALT_COL, ALT_ROW);
+
+  if (cmdHeldNow && !cmdModifierActive) {
     if (Keyboard.isConnected()) {
       Keyboard.press(KEY_LEFT_CTRL);
     }
-    // UsbKeyboard.press(KEY_LEFT_CTRL);  // DISABLED FOR DEBUGGING
-    ctrlModifierActive = true;
-  } else if (!ctrlHeldNow && ctrlModifierActive) {
+    UsbKeyboard.press(KEY_LEFT_CTRL);
+    cmdModifierActive = true;
+    cmdUsedWithOtherKey = false;
+  } else if (!cmdHeldNow && cmdModifierActive) {
     if (Keyboard.isConnected()) {
       Keyboard.release(KEY_LEFT_CTRL);
     }
-    // UsbKeyboard.release(KEY_LEFT_CTRL);  // DISABLED FOR DEBUGGING
-    ctrlModifierActive = false;
+    UsbKeyboard.release(KEY_LEFT_CTRL);
+    cmdModifierActive = false;
   }
 }
 
 void updateShiftModifier() {
-  // Bug fix: Only check RIGHT_SHIFT - ALT key ([0][4]) is handled separately in updateAltModifier()
-  const bool shiftHeldNow = keyActive(RIGHT_SHIFT_COL, RIGHT_SHIFT_ROW);
+  const bool shiftHeldNow = keyActive(LEFT_SHIFT_COL, LEFT_SHIFT_ROW) ||
+                            keyActive(RIGHT_SHIFT_COL, RIGHT_SHIFT_ROW);
 
   if (shiftHeldNow && !shiftModifierActive) {
     if (Keyboard.isConnected()) {
       Keyboard.press(KEY_LEFT_SHIFT);
     }
-    // UsbKeyboard.press(KEY_LEFT_SHIFT);  // DISABLED FOR DEBUGGING
+    UsbKeyboard.press(KEY_LEFT_SHIFT);
     shiftModifierActive = true;
     shiftUsedWithOtherKey = false;
   } else if (!shiftHeldNow && shiftModifierActive) {
     if (Keyboard.isConnected()) {
       Keyboard.release(KEY_LEFT_SHIFT);
     }
-    // UsbKeyboard.release(KEY_LEFT_SHIFT);  // DISABLED FOR DEBUGGING
+    UsbKeyboard.release(KEY_LEFT_SHIFT);
 
-    // If Shift was pressed alone, emit a standalone Shift tap for IME toggle behavior.
+    // If Shift was pressed alone, emit a standalone Shift tap for IME toggle
+    // behavior.
     if (!shiftUsedWithOtherKey) {
       if (Keyboard.isConnected()) {
         Keyboard.write(KEY_LEFT_SHIFT);
       }
-      // UsbKeyboard.write(KEY_LEFT_SHIFT);  // DISABLED FOR DEBUGGING
+      UsbKeyboard.write(KEY_LEFT_SHIFT);
     }
 
     shiftModifierActive = false;
@@ -228,159 +242,96 @@ void emitKey(char output) {
     shiftUsedWithOtherKey = true;
   }
 
+  if (cmdModifierActive) {
+    cmdUsedWithOtherKey = true;
+    // Cancel long-press for ALT if it's being used as a modifier for another
+    // key
+    for (size_t i = 0; i < ConfigManager::longPressKeys.size();
+         i++) {
+      if (ConfigManager::longPressKeys[i].col == ALT_COL && ConfigManager::longPressKeys[i].row == ALT_ROW) {
+        ConfigManager::longPressKeys[i].tracking = false;
+        break;
+      }
+    }
+  }
+
   const uint8_t keycode = static_cast<uint8_t>(output);
   if (Keyboard.isConnected()) {
     Keyboard.write(keycode);
   }
-  // UsbKeyboard.write(keycode);  // DISABLED FOR DEBUGGING
+  UsbKeyboard.write(keycode);
 }
 
 void emitSpecialKey(uint8_t keycode) {
-  if (shiftModifierActive && keycode != KEY_LEFT_SHIFT && keycode != KEY_RIGHT_SHIFT) {
+  if (shiftModifierActive && keycode != KEY_LEFT_SHIFT &&
+      keycode != KEY_RIGHT_SHIFT) {
     shiftUsedWithOtherKey = true;
+  }
+
+  if (cmdModifierActive && keycode != KEY_LEFT_CTRL) {
+    cmdUsedWithOtherKey = true;
+    // Cancel long-press for ALT if it's being used as a modifier for another
+    // key
+    for (size_t i = 0; i < ConfigManager::longPressKeys.size();
+         i++) {
+      if (ConfigManager::longPressKeys[i].col == ALT_COL && ConfigManager::longPressKeys[i].row == ALT_ROW) {
+        ConfigManager::longPressKeys[i].tracking = false;
+        break;
+      }
+    }
   }
 
   if (Keyboard.isConnected()) {
     Keyboard.write(keycode);
   }
-  // UsbKeyboard.write(keycode);  // DISABLED FOR DEBUGGING
-}
-
-void updateAltModifier() {
-  const bool altHeldNow = keyActive(ALT_COL, ALT_ROW);
-
-  if (altHeldNow && !altModifierActive) {
-    altModifierActive = true;
-    
-    // Layer 2 + ALT = TAB
-    if (isLayer2Active()) {
-      Serial.println("[DEBUG] ALT pressed with Layer 2 active - sending TAB");
-      emitSpecialKey(KEY_TAB);
-      layer2Toggle = false;  // Exit Layer 2 after TAB
-    } else {
-      Serial.println("[DEBUG] ALT pressed");
-    }
-  } else if (!altHeldNow && altModifierActive) {
-    altModifierActive = false;
-    Serial.println("[DEBUG] ALT released");
-  }
-}
-
-void handleDeviceSwitching() {
-  static unsigned long lastSwitchTime = 0;
-  const unsigned long now = millis();
-  
-  // Bug fix: Add debounce - prevent rapid re-switching (1 second cooldown)
-  if (now - lastSwitchTime < 1000) {
-    return;
-  }
-  
-  // Check for ALT+ W/E/R to switch devices
-  if (altModifierActive) {
-    Serial.printf("[DEBUG] ALT+SYM active, checking for device switch keys...\n");
-    
-    // Debug: print key states
-    Serial.printf("[DEBUG] Key states: [0][0]=%d [0][1]=%d [1][0]=%d [2][0]=%d\n",
-                  keys[0][0], keys[0][1], keys[1][0], keys[2][0]);
-    
-    if (keyPressed(0, 1)) {  // ALT + W = device 0
-      Serial.println("[DEBUG] MATCHED: [0][1] W key pressed");
-      lastSwitchTime = now;
-      deviceSwitcher.switchToProfile(0);
-      powerManager.recordActivity();
-      deviceSwitchHandled = true;
-      switchKeyCol = 0;
-      switchKeyRow = 1;
-      Serial.println("[SWITCH] Device 0 selected via ALT+SYM+W");
-    } else if (keyPressed(1, 0)) {  // ALT + E = device 1
-      Serial.println("[DEBUG] MATCHED: [1][0] E key pressed");
-      lastSwitchTime = now;
-      deviceSwitcher.switchToProfile(1);
-      powerManager.recordActivity();
-      deviceSwitchHandled = true;
-      switchKeyCol = 1;
-      switchKeyRow = 0;
-      Serial.println("[SWITCH] Device 1 selected via ALT+SYM+E");
-    } else if (keyPressed(2, 0)) {  // ALT + R = device 2
-      Serial.println("[DEBUG] MATCHED: [2][0] R key pressed");
-      lastSwitchTime = now;
-      deviceSwitcher.switchToProfile(2);
-      powerManager.recordActivity();
-      deviceSwitchHandled = true;
-      switchKeyCol = 2;
-      switchKeyRow = 0;
-      layer2Toggle = false;  // Bug fix: Reset Layer 2 after switching
-      Serial.println("[SWITCH] Device 2 selected via ALT+SYM+R");
-    }
-  }
-}
-
-void updateBleConnectionStatus() {
-  bool currentBleConnected = Keyboard.isConnected();
-  const unsigned long now = millis();
-  
-  // Detect potential state change
-  if (currentBleConnected != bleCurrentState) {
-    // State changed, start debounce timer
-    if (bleCurrentStateDetectTime == 0) {
-      bleCurrentStateDetectTime = now;
-    }
-    
-    // Wait for debounce period to confirm state change
-    if (now - bleCurrentStateDetectTime >= BLE_STATE_DEBOUNCE_MS) {
-      // State confirmed after debounce
-      if (currentBleConnected != prevBleConnected) {
-        prevBleConnected = currentBleConnected;
-        bleStateChangeTime = now;
-        
-        uint8_t activeProfile = profileManager.getActiveProfileIndex();
-        profileManager.updateConnectionStatus(activeProfile, currentBleConnected);
-        powerManager.setConnectionStatus(currentBleConnected);
-        
-        if (currentBleConnected) {
-          Serial.printf("[BLE] STABLE: Connected to profile %d: %s\n", 
-                        activeProfile, 
-                        profileManager.getProfile(activeProfile)->name);
-        } else {
-          Serial.println("[BLE] STABLE: Disconnected");
-        }
-      }
-      bleCurrentState = currentBleConnected;
-      bleCurrentStateDetectTime = 0;
-    }
-  } else {
-    // State stable, reset debounce timer
-    bleCurrentStateDetectTime = 0;
-  }
+  UsbKeyboard.write(keycode);
 }
 
 void processLongPressFallbacks() {
   const unsigned long now = millis();
-  const bool layer2Active = isLayer2Active();
+  const uint8_t activeLayer = currentLayer;
 
-  for (size_t i = 0; i < (sizeof(longPressKeys) / sizeof(longPressKeys[0])); i++) {
-    LongPressKey &key = longPressKeys[i];
+  for (size_t i = 0; i < ConfigManager::longPressKeys.size();
+       i++) {
+    LongPressKey &key = ConfigManager::longPressKeys[i];
     const bool active = keyActive(key.col, key.row);
 
     if (active) {
       if (!key.tracking) {
         key.tracking = true;
         key.longSent = false;
-        key.layer2AtPress = layer2Active;
+        key.layerAtPress = activeLayer;
         key.pressStart = now;
       } else if (!key.longSent && (now - key.pressStart) >= LONG_PRESS_MS) {
-        const char longOutput = key.layer2AtPress ? key.layer2LongOutput : key.baseLongOutput;
-        emitKey(longOutput);
-        key.longSent = true;
+        // Special case for ALT: release Command before sending Tab to avoid
+        // Cmd+Tab
+        if (key.col == ALT_COL && key.row == ALT_ROW) {
+          if (Keyboard.isConnected()) {
+            Keyboard.release(KEY_LEFT_CTRL);
+          }
+          UsbKeyboard.release(KEY_LEFT_CTRL);
+        }
+
+        // Keys in Layer 3 are handled by printMatrix(), so skip here
+        if (key.layerAtPress != 2) {
+          const char longOutput = (key.layerAtPress == 1) ? key.layer2LongOutput
+                                                          : key.baseLongOutput;
+          emitKey(longOutput);
+        }
+        key.longSent = true; // Mark as sent to prevent re-triggering on release
       }
     } else if (key.tracking) {
-      if (!key.longSent) {
-        const char shortOutput = key.layer2AtPress ? key.layer2ShortOutput : key.baseShortOutput;
+      if (!key.longSent && key.layerAtPress != 2) { // Skip for Layer 3
+        const char shortOutput = (key.layerAtPress == 1) ? key.layer2ShortOutput
+                                                         : key.baseShortOutput;
         emitKey(shortOutput);
       }
       key.tracking = false;
       key.longSent = false;
-      key.layer2AtPress = false;
+      key.layerAtPress = 0;
+
+      // Update activity on key release
+      updateLastActivity();
     }
   }
 }
@@ -399,7 +350,8 @@ void readMatrix() {
 
       const bool buttonPressed = (digitalRead(curRow) == LOW);
       keys[colIndex][rowIndex] = buttonPressed;
-      changedValue[colIndex][rowIndex] = (lastValue[colIndex][rowIndex] != buttonPressed);
+      changedValue[colIndex][rowIndex] =
+          (lastValue[colIndex][rowIndex] != buttonPressed);
       lastValue[colIndex][rowIndex] = buttonPressed;
 
       pinMode(curRow, INPUT);
@@ -410,7 +362,7 @@ void readMatrix() {
 }
 
 void printMatrix() {
-  const bool layer2Active = isLayer2Active();
+  const uint8_t activeLayer = currentLayer;
 
   for (size_t rowIndex = 0; rowIndex < ROW_COUNT; rowIndex++) {
     for (size_t colIndex = 0; colIndex < COL_COUNT; colIndex++) {
@@ -418,25 +370,22 @@ void printMatrix() {
         continue;
       }
 
-      // Skip keys that were handled by device switching
-      if (deviceSwitchHandled && colIndex == switchKeyCol && rowIndex == switchKeyRow) {
-        continue;
-      }
-
-      // Skip ALT and SYM modifier keys from being emitted as characters
-      if ((colIndex == ALT_COL && rowIndex == ALT_ROW) || 
-          (colIndex == LAYER2_COL && rowIndex == LAYER2_ROW)) {
-        continue;
-      }
+      // Update last activity time when any key is pressed
+      updateLastActivity();
 
       if (colIndex == BACKSPACE_COL && rowIndex == BACKSPACE_ROW) {
         emitSpecialKey(KEY_BACKSPACE);
         continue;
       }
 
-      // Check for special keys in Layer 2 (e.g., SYM + ALT → TAB)
-      if (layer2Active && keyboardSpecial[colIndex][rowIndex] != 0) {
-        emitSpecialKey(keyboardSpecial[colIndex][rowIndex]);
+      if (activeLayer == 1 && ConfigManager::keyboardSpecial[colIndex][rowIndex] != 0) {
+        emitSpecialKey(ConfigManager::keyboardSpecial[colIndex][rowIndex]);
+        continue;
+      }
+
+      // Check for Navigation keys in Layer 3
+      if (activeLayer == 2 && ConfigManager::keyboardLayer3[colIndex][rowIndex] != 0) {
+        emitSpecialKey(ConfigManager::keyboardLayer3[colIndex][rowIndex]);
         continue;
       }
 
@@ -448,9 +397,12 @@ void printMatrix() {
         continue;
       }
 
-      char output = keyboard[colIndex][rowIndex];
-      if (layer2Active && keyboardSymbol[colIndex][rowIndex] != '\0') {
-        output = keyboardSymbol[colIndex][rowIndex];
+      char output = ConfigManager::keyboard[colIndex][rowIndex];
+      if (activeLayer == 1 && ConfigManager::keyboardSymbol[colIndex][rowIndex] != '\0') {
+        output = ConfigManager::keyboardSymbol[colIndex][rowIndex];
+      } else if (activeLayer == 2 &&
+                 ConfigManager::keyboardLayer3[colIndex][rowIndex] != '\0') {
+        output = (char)ConfigManager::keyboardLayer3[colIndex][rowIndex];
       }
 
       if (output == '\0') {
@@ -460,57 +412,77 @@ void printMatrix() {
       emitKey(output);
     }
   }
-  
-  // Reset device switch flag at the end of matrix processing
-  deviceSwitchHandled = false;
+}
+
+// Power Management Functions
+void updateLastActivity() {
+  lastActivityTime = millis();
+  isInLightSleep = false;
+}
+
+bool isBleConnected() { return Keyboard.isConnected(); }
+
+void updateBleDisconnectTimer() {
+  const bool currentConnected = isBleConnected();
+
+  if (wasConnectedPreviously && !currentConnected) {
+    // BLE just disconnected
+    lastBleDisconnectTime = millis();
+  }
+  wasConnectedPreviously = currentConnected;
+}
+
+bool shouldEnterSleep() {
+  const unsigned long now = millis();
+  const unsigned long inactiveTime = now - lastActivityTime;
+  const bool bleConnected = isBleConnected();
+
+  // Must be inactive for at least INACTIVITY_TIMEOUT_MS
+  if (inactiveTime < INACTIVITY_TIMEOUT_MS) {
+    return false;
+  }
+
+  // If BLE is connected, allow sleep
+  if (bleConnected) {
+    return true;
+  }
+
+  // If BLE is disconnected, wait GRACE_PERIOD before sleeping
+  const unsigned long disconnectTime = now - lastBleDisconnectTime;
+  return disconnectTime >= BLE_DISCONNECT_GRACE_PERIOD_MS;
+}
+
+void enterLightSleep() {
+  // Configure GPIO wakeup on row pins (pressed = LOW)
+  // This allows any key press to wake the device
+  // Using GPIO 6 (first row pin) as the wakeup trigger
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_6, 0); // Row 6, trigger on LOW
+
+  isInLightSleep = true;
+  esp_light_sleep_start();
+
+  // Code resumes here after wakeup
+  updateLastActivity(); // Reset activity timer on wake
 }
 
 void setup() {
-  // Initialize serial for debugging
-  Serial.begin(115200);
-  delay(500);
-  Serial.println("\n[SYSTEM] BBQ10 BLE Keyboard - DEBUG MODE (USB HID DISABLED)");
+  ConfigManager::begin();
+  WebManager::begin();
+  StatusLED::begin();
   
-  // USB.begin();  // DISABLED FOR DEBUGGING
-  // UsbKeyboard.begin();  // DISABLED FOR DEBUGGING
+  // Configure CPU frequency and dynamic power management
+  // Set max frequency to 80MHz, min to 20MHz (auto-scales when idle)
+  esp_pm_config_esp32s3_t pm_config = {
+      .max_freq_mhz = 80, .min_freq_mhz = 20, .light_sleep_enable = true};
+  esp_pm_configure(&pm_config);
+
+  USB.begin();
+  UsbKeyboard.begin();
 
   Keyboard.setDelay(8);
   Keyboard.begin();
 
-  // Initialize EEPROM
-  EEPROM.begin(EEPROM_TOTAL_SIZE);
-  delay(100);
-  
-  // Initialize profile manager
-  profileManager.initProfiles();
-  Serial.println("[SYSTEM] Profile manager initialized");
-  
-  // Create default device profiles if not already created
-  Serial.println("[SYSTEM] Setting up default device profiles...");
-  if (profileManager.getProfileCount() == 0) {
-    // Create three default profiles
-    // Note: BLE addresses are placeholder values - they will be updated when devices are bonded
-    uint8_t addr0[] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x00};
-    uint8_t addr1[] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x01};
-    uint8_t addr2[] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x02};
-    
-    profileManager.createProfile(0, "Phone A", addr0);
-    profileManager.createProfile(1, "Phone B", addr1);
-    profileManager.createProfile(2, "Laptop", addr2);
-    
-    Serial.println("[SYSTEM] Created 3 default device profiles");
-  }
-  
-  // Initialize power manager
-  powerManager.init();
-  Serial.println("[SYSTEM] Power manager initialized");
-  
-  // Initialize device switcher
-  deviceSwitcher.init(SWITCH_MODE_BUTTON);
-  Serial.println("[SYSTEM] Device switcher initialized");
-  
-  // Print profile information
-  profileManager.printAllProfiles();
+  // BLE bonds are preserved so the keyboard auto-reconnects to paired hosts.
 
   delay(200);
 
@@ -521,35 +493,25 @@ void setup() {
   for (size_t i = 0; i < COL_COUNT; i++) {
     pinMode(cols[i], INPUT_PULLUP);
   }
-  
-  Serial.println("[SYSTEM] Setup complete\n");
+
+  // Initialize activity timer
+  lastActivityTime = millis();
 }
 
 void loop() {
-  readMatrix();
-  
-  // Bug fix: Use flag to properly break out of nested loops
-  bool activityDetected = false;
-  for (size_t col = 0; col < COL_COUNT && !activityDetected; col++) {
-    for (size_t row = 0; row < ROW_COUNT && !activityDetected; row++) {
-      if (keyPressed(col, row) || keyActive(col, row)) {
-        powerManager.recordActivity();
-        activityDetected = true;
-      }
-    }
+  StatusLED::update();
+
+  if (WebManager::isConfigMode()) {
+    WebManager::handle();
+    delay(10);
+    return;
   }
-  
-  // Update modifiers and BLE status
+
+  readMatrix();
   updateLayer2Toggle();
-  updateShiftModifier();  // Bug fix: Now only checks RIGHT_SHIFT
-  updateCtrlModifier();
-  updateAltModifier();
-  updateBleConnectionStatus();
-  
-  // Handle device switching (ALT + SYM + number)
-  handleDeviceSwitching();
-  
-  // Process keys
+  updateShiftModifier();
+  // updateCtrlModifier();
+  updateCmdModifier();
   processLongPressFallbacks();
   printMatrix();
 
@@ -557,10 +519,14 @@ void loop() {
   if (keyPressed(3, 3)) {
     emitSpecialKey(KEY_RETURN);
   }
-  
-  // Update power and device management systems
-  powerManager.update();
-  deviceSwitcher.update();
+
+  // Monitor BLE connection status
+  updateBleDisconnectTimer();
+
+  // Check if should enter light sleep
+  if (shouldEnterSleep()) {
+    enterLightSleep();
+  }
 
   delay(10);
 }

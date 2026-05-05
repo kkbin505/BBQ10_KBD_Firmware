@@ -1,87 +1,115 @@
 # BBQ10KBD Firmware (ESP32-S3)
 
-This firmware turns an ESP32-S3 board into a BLE keyboard for the BlackBerry Q10 keyboard matrix.
+## ESP32-Powered Blackberry Q10 Keyboard with Web Configurator
 
-## Keycap Layout Reference (from your design)
+I have always dreamed of building my own portable physical keyboard. After exploring the community, I was deeply inspired by the pioneering work of arturo182/BBQ10KBD and ZitaoTech/BBQ10-USB_BLE_Keyboard. Their research provided the foundation for this project, and I am incredibly grateful for their contributions to the open-source community.
 
-The key legend you shared can be represented as two logical layers:
+![image](https://github.com/kkbin505/BBQ10_KBD_Firmware/blob/web_server/img/IMG_5940.jpg)
 
-- Layer 1: normal letters / base keys
-- Layer 2: symbol layer (triggered by the `sym` key in firmware)
+Project Overview
+This project is a lightweight, ESP32-based firmware implementation designed for the Blackberry Q10 keyboard module. Unlike traditional firmware that requires recompiling to change keymaps, this project focuses on a streamlined user experience through an integrated WiFi-based configuration interface.
 
-### Layer 1 (Base)
+Key Features
+ESP32-Based: Lightweight and efficient firmware architecture.
 
+WiFi Web Configurator: No need to recompile the code. Simply connect to the keyboard’s WiFi to change settings on the fly.
+
+![image](https://github.com/user-attachments/assets/ae8b1524-0572-4314-abdb-6f2c4adfec81)
+
+![image](https://github.com/user-attachments/assets/fcecaf61-dc60-4fdc-9c34-d4b2fef50c74)
+
+Graphical Interaction: An intuitive web-based interface for effortless key mapping and macro configuration.
+
+Layer Customization: Fully supports custom layers, allowing you to define different key behaviors for various workflows or devices.
+
+This project is a work-in-progress, and I hope it serves as a useful tool for others looking to build their own custom portable devices.
+
+This firmware turns an ESP32-S3 board into a high-performance BLE/USB keyboard for the BlackBerry Q10 keyboard matrix. Optimized for iOS and iPadOS.
+
+## 🚀 NEW: Dynamic Keyboard Configuration
+No more re-compiling! You can now customize your keyboard layout and shortcuts instantly over WiFi.
+
+### How to enter Config Mode
+1.  **Hold the `SYM` key for 10 seconds.**
+2.  The keyboard will temporarily disconnect Bluetooth and start a WiFi hotspot named **`BBQ10_Config`**.
+3.  Connect to the WiFi (Password: `12345678`).
+4.  A configuration page should **automatically pop up** (Captive Portal). If not, visit `http://192.168.4.1` in your browser.
+5.  Customize your keys and click **Save**.
+6.  Click **Reboot** to return to normal keyboard mode.
+
+---
+
+## Keyboard Layout
+
+The firmware supports three logical layers by default, but all are fully customizable via the Web Dashboard:
+
+- **Layer 1 (Base)**: Normal letters.
+- **Layer 2 (Symbols)**: Triggered by a **single press** of the `SYM` key.
+- **Layer 3 (Navigation)**: Triggered by a **double tap** of the `SYM` key. Includes arrow keys.
+
+### Default Mapping Reference (Customizable)
+
+#### Layer 1 (Base)
 ```text
 Q W E R T Y U I O P
 A S D F G H J K L Backspace
 Shift Z X C V B N M ; Enter
-Ctrl Alt Space Sym(Layer2) aA(Layer3)
+Ctrl(Mic) Alt(0) Space Sym(L2/L3) aA(Shift)
 ```
 
-### Layer 2 (Symbols on keycaps)
+## Features & Optimizations
 
-```text
-# 1 2 3 ( ) - - + @
-* 4 5 6 / : ; ' " Backspace
-Shift 7 8 9 ? ! , . $ Enter
-Ctrl 0 Space Sym(Layer2) aA(Layer3)
-```
+### 1. WiFi Web Dashboard
+- **Visual Mapping**: A modern, interactive UI that mirrors your physical keyboard layout.
+- **Layer Editing**: Change characters for Base and Symbol layers directly.
+- **Navigation Layer**: Map any key to special keycodes (Arrows, Home, End, etc.).
+- **Long Press Shortcuts**: Define custom behaviors for long-pressing keys (useful for hardware workarounds or macros).
+- **Captive Portal**: Automatically opens the config page upon WiFi connection.
 
-Notes:
+### 2. iOS Command (⌘) Modifier
+- The **Alt** key is mapped to the **Command (GUI)** modifier by default.
+- Supports instant shortcuts: `Alt + C` (Copy), `Alt + V` (Paste), `Alt + Space` (Spotlight).
 
-- Current firmware uses toggle-to-activate Layer 2 behavior: press `sym` once to enter Layer 2, press again to exit.
-- If a key has no Layer 2 mapping in firmware, it falls back to Layer 1 output.
-- Ctrl is a hold modifier on `ROW7/COL2`.
-- Both left and right Shift keys are enabled as hold modifiers.
-- Because ROW7 is damaged on this hardware, `F/J/K` are currently emitted by long-press fallback on `D/H/L`.
-- The same fallback also works on Layer 2: long press `5/:/"` emits `6/;/'`.
+### 3. Smart Tab Trigger
+- **Long Press Alt**: Sends a **Tab** signal.
+- **Intelligent Conflict Resolution**: Cancel Tab if Alt is used as a modifier.
 
-## Implemented Today
+### 4. Hardware Fallbacks
+- Optimized for boards with broken matrix lines (e.g., long press `D` for `F`). These are now configurable via the dashboard!
 
-- BLE HID keyboard output using ESP32 BLE Keyboard.
-- USB HID keyboard output enabled in parallel with BLE.
-- NimBLE backend enabled for better ESP32-S3 compatibility.
-- Matrix scan for 7 rows x 5 columns.
-- Long-press fallback mapping for broken ROW7 keys:
-  - long press `D` -> `F`
-  - long press `H` -> `J`
-  - long press `L` -> `K`
-- Shift support as a true HID modifier (both left and right Shift keys work; host can detect Shift state for shortcuts/IME switching).
-- Enter key mapping to HID Return.
-- Backspace key mapping fixed to matrix `ROW4/COL5`.
-- Symbol key support using press-to-toggle layer selection.
-- Ctrl hold modifier support on `ROW7/COL2`.
+### 5. System Integration
+- **Dual Mode**: Sends key events to both BLE and USB HID simultaneously.
+- **Auto-Reconnect**: Preserves BLE bonds for seamless pairing.
+- **Persistent Storage**: Settings are stored in **LittleFS** as a JSON file.
+### LED Status Indicators
+The device features an onboard WS2812 RGB LED (controlled via GPIO48) to provide real-time visual feedback on the device status:
 
-## Connectivity Behavior
+🔴 Red: BLE Disconnected
 
-- Key events are sent to USB HID and BLE HID at the same time.
-- BLE bonds are preserved across reboots, so the keyboard auto-reconnects to previously paired hosts.
+🟢 Green: BLE Connected
 
-## Hardware Notes
-
-- If ROW7 is physically open (no continuity), `F/J/K` cannot be read directly.
-- The long-press fallback is a software workaround for that hardware issue.
+🔵 Blue: WiFi Configuration Mode
 
 ## Build and Upload
 
-From this `firmware` folder:
+Requirement: [PlatformIO](https://platformio.org/)
 
 ```bash
+# Build project
 pio run
-pio run --target upload
+
+# Upload firmware
+pio run -t upload
+
 ```
-
-## BLE Pairing
-
-1. Upload firmware and reboot the board.
-2. Pair with BLE device name: `BBQ10-BLE2`.
-3. Open a text box and test typing.
-4. If connected but typing does not work, remove old pairing and pair again.
-
-
 ## Reference:
 
 https://github.com/arturo182/BBQ10KBD
 
 https://github.com/ZitaoTech/BBQ10-USB_BLE_Keyboard
 
+## Technical Details
+- **Framework**: Arduino ESP32
+- **Filesystem**: LittleFS
+- **Networking**: AsyncWebServer with Captive Portal support
+- **Config**: JSON serialization via ArduinoJson
