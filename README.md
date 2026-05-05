@@ -101,9 +101,12 @@ pio run
 # Upload firmware
 pio run -t upload
 
-# Upload filesystem data (Required for the Web Dashboard)
-pio run -t uploadfs
 ```
+## Reference:
+
+https://github.com/arturo182/BBQ10KBD
+
+https://github.com/ZitaoTech/BBQ10-USB_BLE_Keyboard
 
 ## Technical Details
 - **Framework**: Arduino ESP32
