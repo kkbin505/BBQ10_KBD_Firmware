@@ -247,10 +247,17 @@ void releaseKey(size_t col, size_t row) {
   sentKeycode[col][row] = 0;
 }
 
-// One-shot write() wrapper used only for synthetic presses where natural timing
+// Keep synthetic press/release reports far enough apart that Android BLE hosts
+// do not coalesce them into a single connection event and generate duplicate input.
+constexpr unsigned long SYNTHETIC_KEY_REPORT_GAP_MS = 110;
+
+// One-shot helper used only for synthetic presses where natural timing
 // doesn't apply (e.g. long-press short output determined on key-up, TAB from ALT+SYM).
 static void writeKey(uint8_t keycode) {
-  if (Keyboard.isConnected()) Keyboard.write(keycode);
+  if (!Keyboard.isConnected()) return;
+  Keyboard.press(keycode);
+  delay(SYNTHETIC_KEY_REPORT_GAP_MS);
+  Keyboard.release(keycode);
 }
 
 void updateAltModifier() {
