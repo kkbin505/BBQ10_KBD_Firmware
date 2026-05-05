@@ -39,9 +39,18 @@ constexpr uint8_t cols[] = {1, 2, 3, 4, 5};
 constexpr size_t ROW_COUNT = sizeof(rows) / sizeof(rows[0]);
 constexpr size_t COL_COUNT = sizeof(cols) / sizeof(cols[0]);
 
-bool keys[COL_COUNT][ROW_COUNT] = {};
-bool lastValue[COL_COUNT][ROW_COUNT] = {};
-bool changedValue[COL_COUNT][ROW_COUNT] = {};
+// --- Per-key debounce (QMK sym_defer_pk algorithm) ---
+// Raw scan value and when it last changed; committed state only updates after DEBOUNCE_MS of stability.
+constexpr unsigned long DEBOUNCE_MS = 5;
+bool  keyRaw[COL_COUNT][ROW_COUNT]     = {};
+unsigned long keyRawTime[COL_COUNT][ROW_COUNT] = {};
+bool  keyState[COL_COUNT][ROW_COUNT]   = {};   // stable debounced state
+bool  keyEdgeDown[COL_COUNT][ROW_COUNT] = {};  // true for exactly one loop on press
+bool  keyEdgeUp[COL_COUNT][ROW_COUNT]  = {};   // true for exactly one loop on release
+
+// Tracks the keycode currently held via Keyboard.press() for each matrix position so
+// we can pair it with an exact Keyboard.release() on key-up — no write() timing games.
+uint8_t sentKeycode[COL_COUNT][ROW_COUNT] = {};
 
 constexpr unsigned long LONG_PRESS_MS = 280;
 
@@ -128,21 +137,18 @@ struct LongPressKey {
   bool longSent;
   bool layer2AtPress;
   unsigned long pressStart;
+  uint8_t heldKeycode;  // keycode currently held via press() for long output; 0 = none
 };
 
 LongPressKey longPressKeys[] = {
-  {D_COL, D_ROW, 'd', 'f', '5', '6', false, false, false, 0},
-  {H_COL, H_ROW, 'h', 'j', ':', ';', false, false, false, 0},
-  {L_COL, L_ROW, 'l', 'k', '"', '\'', false, false, false, 0},
+  {D_COL, D_ROW, 'd', 'f', '5', '6', false, false, false, 0, 0},
+  {H_COL, H_ROW, 'h', 'j', ':', ';', false, false, false, 0, 0},
+  {L_COL, L_ROW, 'l', 'k', '"', '\'', false, false, false, 0, 0},
 };
 
-bool keyPressed(size_t colIndex, size_t rowIndex) {
-  return changedValue[colIndex][rowIndex] && keys[colIndex][rowIndex];
-}
-
-bool keyActive(size_t colIndex, size_t rowIndex) {
-  return keys[colIndex][rowIndex];
-}
+bool keyPressed(size_t colIndex, size_t rowIndex)  { return keyEdgeDown[colIndex][rowIndex]; }
+bool keyReleased(size_t colIndex, size_t rowIndex) { return keyEdgeUp[colIndex][rowIndex]; }
+bool keyActive(size_t colIndex, size_t rowIndex)   { return keyState[colIndex][rowIndex]; }
 
 bool isPrintableKey(size_t colIndex, size_t rowIndex) {
   return keyboard[colIndex][rowIndex] != '\0' || keyboardSymbol[colIndex][rowIndex] != '\0';
@@ -206,44 +212,45 @@ void updateShiftModifier() {
     }
     // UsbKeyboard.release(KEY_LEFT_SHIFT);  // DISABLED FOR DEBUGGING
 
-    // If Shift was pressed alone, emit a standalone Shift tap for IME toggle behavior.
-    if (!shiftUsedWithOtherKey) {
-      if (Keyboard.isConnected()) {
-        Keyboard.write(KEY_LEFT_SHIFT);
-      }
-      // UsbKeyboard.write(KEY_LEFT_SHIFT);  // DISABLED FOR DEBUGGING
-    }
+    // NOTE: Removed standalone Shift write() that was here for "IME toggle".
+    // Sending release(SHIFT) followed immediately by write(SHIFT) delivers two rapid Shift
+    // events to Android, which confuses Android's BLE HID host and can cause subsequent
+    // key presses to be doubled. iOS and Windows are more tolerant of this pattern.
 
     shiftModifierActive = false;
     shiftUsedWithOtherKey = false;
   }
 }
 
-void emitKey(char output) {
-  if (output == '\0') {
-    return;
-  }
-
-  if (shiftModifierActive) {
-    shiftUsedWithOtherKey = true;
-  }
-
-  const uint8_t keycode = static_cast<uint8_t>(output);
-  if (Keyboard.isConnected()) {
-    Keyboard.write(keycode);
-  }
-  // UsbKeyboard.write(keycode);  // DISABLED FOR DEBUGGING
+// Send key-down for a printable character and remember it for the paired release.
+void pressKey(size_t col, size_t row, char output) {
+  if (output == '\0' || sentKeycode[col][row] != 0) return;
+  if (shiftModifierActive) shiftUsedWithOtherKey = true;
+  const uint8_t kc = static_cast<uint8_t>(output);
+  if (Keyboard.isConnected()) Keyboard.press(kc);
+  sentKeycode[col][row] = kc;
 }
 
-void emitSpecialKey(uint8_t keycode) {
-  if (shiftModifierActive && keycode != KEY_LEFT_SHIFT && keycode != KEY_RIGHT_SHIFT) {
+// Send key-down for a special/HID keycode and remember it for the paired release.
+void pressSpecialKey(size_t col, size_t row, uint8_t keycode) {
+  if (sentKeycode[col][row] != 0) return;
+  if (shiftModifierActive && keycode != KEY_LEFT_SHIFT && keycode != KEY_RIGHT_SHIFT)
     shiftUsedWithOtherKey = true;
-  }
+  if (Keyboard.isConnected()) Keyboard.press(keycode);
+  sentKeycode[col][row] = keycode;
+}
 
-  if (Keyboard.isConnected()) {
-    Keyboard.write(keycode);
-  }
-  // UsbKeyboard.write(keycode);  // DISABLED FOR DEBUGGING
+// Send key-up for whatever was pressed at this matrix position.
+void releaseKey(size_t col, size_t row) {
+  if (sentKeycode[col][row] == 0) return;
+  if (Keyboard.isConnected()) Keyboard.release(sentKeycode[col][row]);
+  sentKeycode[col][row] = 0;
+}
+
+// One-shot write() wrapper used only for synthetic presses where natural timing
+// doesn't apply (e.g. long-press short output determined on key-up, TAB from ALT+SYM).
+static void writeKey(uint8_t keycode) {
+  if (Keyboard.isConnected()) Keyboard.write(keycode);
 }
 
 void updateAltModifier() {
@@ -255,7 +262,7 @@ void updateAltModifier() {
     // Layer 2 + ALT = TAB
     if (isLayer2Active()) {
       Serial.println("[DEBUG] ALT pressed with Layer 2 active - sending TAB");
-      emitSpecialKey(KEY_TAB);
+      writeKey(KEY_TAB);
       layer2Toggle = false;  // Exit Layer 2 after TAB
     } else {
       Serial.println("[DEBUG] ALT pressed");
@@ -281,7 +288,7 @@ void handleDeviceSwitching() {
     
     // Debug: print key states
     Serial.printf("[DEBUG] Key states: [0][0]=%d [0][1]=%d [1][0]=%d [2][0]=%d\n",
-                  keys[0][0], keys[0][1], keys[1][0], keys[2][0]);
+                  keyState[0][0], keyState[0][1], keyState[1][0], keyState[2][0]);
     
     if (keyPressed(0, 1)) {  // ALT + W = device 0
       Serial.println("[DEBUG] MATCHED: [0][1] W key pressed");
@@ -366,17 +373,29 @@ void processLongPressFallbacks() {
       if (!key.tracking) {
         key.tracking = true;
         key.longSent = false;
+        key.heldKeycode = 0;
         key.layer2AtPress = layer2Active;
         key.pressStart = now;
       } else if (!key.longSent && (now - key.pressStart) >= LONG_PRESS_MS) {
+        // Long-press threshold reached: hold the key down naturally so the host
+        // sees real press duration and can handle auto-repeat correctly.
         const char longOutput = key.layer2AtPress ? key.layer2LongOutput : key.baseLongOutput;
-        emitKey(longOutput);
+        if (longOutput != '\0') {
+          const uint8_t kc = static_cast<uint8_t>(longOutput);
+          if (Keyboard.isConnected()) Keyboard.press(kc);
+          key.heldKeycode = kc;
+        }
         key.longSent = true;
       }
     } else if (key.tracking) {
       if (!key.longSent) {
+        // Short press: character is determined on release, so emit as a one-shot write().
         const char shortOutput = key.layer2AtPress ? key.layer2ShortOutput : key.baseShortOutput;
-        emitKey(shortOutput);
+        if (shortOutput != '\0') writeKey(static_cast<uint8_t>(shortOutput));
+      } else if (key.heldKeycode != 0) {
+        // Long press: send the matching release for what was held.
+        if (Keyboard.isConnected()) Keyboard.release(key.heldKeycode);
+        key.heldKeycode = 0;
       }
       key.tracking = false;
       key.longSent = false;
@@ -385,10 +404,12 @@ void processLongPressFallbacks() {
   }
 }
 
+// Scan the key matrix and update raw state + timestamps.
+// Does NOT update committed state — call processDebounce() for that.
 void readMatrix() {
+  const unsigned long now = millis();
   for (size_t colIndex = 0; colIndex < COL_COUNT; colIndex++) {
     const uint8_t curCol = cols[colIndex];
-
     pinMode(curCol, OUTPUT);
     digitalWrite(curCol, LOW);
 
@@ -397,10 +418,11 @@ void readMatrix() {
       pinMode(curRow, INPUT_PULLUP);
       delayMicroseconds(200);
 
-      const bool buttonPressed = (digitalRead(curRow) == LOW);
-      keys[colIndex][rowIndex] = buttonPressed;
-      changedValue[colIndex][rowIndex] = (lastValue[colIndex][rowIndex] != buttonPressed);
-      lastValue[colIndex][rowIndex] = buttonPressed;
+      const bool raw = (digitalRead(curRow) == LOW);
+      if (raw != keyRaw[colIndex][rowIndex]) {
+        keyRaw[colIndex][rowIndex] = raw;
+        keyRawTime[colIndex][rowIndex] = now;  // record when the raw edge happened
+      }
 
       pinMode(curRow, INPUT);
     }
@@ -409,59 +431,69 @@ void readMatrix() {
   }
 }
 
+// QMK sym_defer_pk: commit a raw state change only after it has been stable for
+// DEBOUNCE_MS, preventing phantom events from contact bounce.
+void processDebounce() {
+  const unsigned long now = millis();
+  for (size_t colIndex = 0; colIndex < COL_COUNT; colIndex++) {
+    for (size_t rowIndex = 0; rowIndex < ROW_COUNT; rowIndex++) {
+      keyEdgeDown[colIndex][rowIndex] = false;
+      keyEdgeUp[colIndex][rowIndex]   = false;
+
+      if (keyRaw[colIndex][rowIndex] != keyState[colIndex][rowIndex]) {
+        if (now - keyRawTime[colIndex][rowIndex] >= DEBOUNCE_MS) {
+          const bool newState = keyRaw[colIndex][rowIndex];
+          keyEdgeDown[colIndex][rowIndex] = newState;   // rising edge
+          keyEdgeUp[colIndex][rowIndex]   = !newState;  // falling edge
+          keyState[colIndex][rowIndex]    = newState;
+        }
+      }
+    }
+  }
+}
+
 void printMatrix() {
   const bool layer2Active = isLayer2Active();
 
   for (size_t rowIndex = 0; rowIndex < ROW_COUNT; rowIndex++) {
     for (size_t colIndex = 0; colIndex < COL_COUNT; colIndex++) {
+      // Key-up: release whatever was held for this position.
+      if (keyReleased(colIndex, rowIndex)) {
+        releaseKey(colIndex, rowIndex);
+      }
+
       if (!keyPressed(colIndex, rowIndex)) {
         continue;
       }
 
-      // Skip keys that were handled by device switching
-      if (deviceSwitchHandled && colIndex == switchKeyCol && rowIndex == switchKeyRow) {
-        continue;
-      }
-
-      // Skip ALT and SYM modifier keys from being emitted as characters
-      if ((colIndex == ALT_COL && rowIndex == ALT_ROW) || 
-          (colIndex == LAYER2_COL && rowIndex == LAYER2_ROW)) {
-        continue;
-      }
+      if (deviceSwitchHandled && colIndex == switchKeyCol && rowIndex == switchKeyRow) continue;
+      if ((colIndex == ALT_COL && rowIndex == ALT_ROW) ||
+          (colIndex == LAYER2_COL && rowIndex == LAYER2_ROW)) continue;
 
       if (colIndex == BACKSPACE_COL && rowIndex == BACKSPACE_ROW) {
-        emitSpecialKey(KEY_BACKSPACE);
+        pressSpecialKey(colIndex, rowIndex, KEY_BACKSPACE);
         continue;
       }
 
-      // Check for special keys in Layer 2 (e.g., SYM + ALT → TAB)
       if (layer2Active && keyboardSpecial[colIndex][rowIndex] != 0) {
-        emitSpecialKey(keyboardSpecial[colIndex][rowIndex]);
+        pressSpecialKey(colIndex, rowIndex, keyboardSpecial[colIndex][rowIndex]);
         continue;
       }
 
-      if (!isPrintableKey(colIndex, rowIndex)) {
-        continue;
-      }
-
-      if (isLongPressManagedKey(colIndex, rowIndex)) {
-        continue;
-      }
+      if (!isPrintableKey(colIndex, rowIndex)) continue;
+      if (isLongPressManagedKey(colIndex, rowIndex)) continue;
 
       char output = keyboard[colIndex][rowIndex];
       if (layer2Active && keyboardSymbol[colIndex][rowIndex] != '\0') {
         output = keyboardSymbol[colIndex][rowIndex];
       }
 
-      if (output == '\0') {
-        continue;
-      }
+      if (output == '\0') continue;
 
-      emitKey(output);
+      pressKey(colIndex, rowIndex, output);
     }
   }
-  
-  // Reset device switch flag at the end of matrix processing
+
   deviceSwitchHandled = false;
 }
 
@@ -474,7 +506,7 @@ void setup() {
   // USB.begin();  // DISABLED FOR DEBUGGING
   // UsbKeyboard.begin();  // DISABLED FOR DEBUGGING
 
-  Keyboard.setDelay(8);
+  Keyboard.setDelay(20);  // Android BLE connection interval is 45-100ms; 8ms was too short and caused double-input on Android
   Keyboard.begin();
 
   // Initialize EEPROM
@@ -527,38 +559,37 @@ void setup() {
 
 void loop() {
   readMatrix();
-  
-  // Bug fix: Use flag to properly break out of nested loops
+  processDebounce();  // commit stable state, generate edge events
+
   bool activityDetected = false;
   for (size_t col = 0; col < COL_COUNT && !activityDetected; col++) {
     for (size_t row = 0; row < ROW_COUNT && !activityDetected; row++) {
-      if (keyPressed(col, row) || keyActive(col, row)) {
+      if (keyEdgeDown[col][row] || keyEdgeUp[col][row] || keyActive(col, row)) {
         powerManager.recordActivity();
         activityDetected = true;
       }
     }
   }
-  
-  // Update modifiers and BLE status
+
   updateLayer2Toggle();
-  updateShiftModifier();  // Bug fix: Now only checks RIGHT_SHIFT
+  updateShiftModifier();
   updateCtrlModifier();
   updateAltModifier();
   updateBleConnectionStatus();
-  
-  // Handle device switching (ALT + SYM + number)
+
   handleDeviceSwitching();
-  
-  // Process keys
+
   processLongPressFallbacks();
   printMatrix();
 
-  // Enter key at [3][3]
+  // Enter key at [3][3] — handled outside printMatrix because keyboard[3][3] is '\0'
   if (keyPressed(3, 3)) {
-    emitSpecialKey(KEY_RETURN);
+    pressSpecialKey(3, 3, KEY_RETURN);
   }
-  
-  // Update power and device management systems
+  if (keyReleased(3, 3)) {
+    releaseKey(3, 3);
+  }
+
   powerManager.update();
   deviceSwitcher.update();
 
