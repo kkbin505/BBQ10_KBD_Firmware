@@ -27,8 +27,8 @@
 #undef KeyReport
 
 #include "ConfigManager.h"
-#include "WebManager.h"
 #include "StatusLED.h"
+#include "WebManager.h"
 
 BleKeyboard Keyboard("BBQ10KBD", "BBQ10KBD", 100);
 USBHIDKeyboard UsbKeyboard;
@@ -44,6 +44,8 @@ bool lastValue[COL_COUNT][ROW_COUNT] = {};
 bool changedValue[COL_COUNT][ROW_COUNT] = {};
 
 constexpr unsigned long LONG_PRESS_MS = 280;
+
+bool isEmittingLongPress = false;
 
 constexpr size_t D_COL = 1;
 constexpr size_t D_ROW = 2;
@@ -75,12 +77,6 @@ bool wasConnectedPreviously = true;
 
 // Config loaded from LittleFS
 
-
-
-
-
-
-
 bool ctrlModifierActive = false;
 bool shiftModifierActive = false;
 bool shiftUsedWithOtherKey = false;
@@ -93,8 +89,6 @@ uint8_t currentLayer = 0;
 bool layer2LastPressed = false;
 unsigned long lastSymPressTime = 0;
 constexpr unsigned long DOUBLE_TAP_MS = 300;
-
-
 
 // Forward declarations for power management functions
 void updateLastActivity();
@@ -142,8 +136,8 @@ void updateLayer2Toggle() {
   }
 
   // 10 second hold for config mode
-  if (symPressed && (now - lastSymPressTime > 10000)) {
-     WebManager::startConfigMode();
+  if (symPressed && (now - lastSymPressTime > wifi_enable_press_time)) {
+    WebManager::startConfigMode();
   }
 
   layer2LastPressed = symPressed;
@@ -152,13 +146,14 @@ void updateLayer2Toggle() {
 bool isLongPressManagedKey(size_t colIndex, size_t rowIndex) {
   // If Layer 3 has an override for this key, don't treat it as long-press
   // managed so that printMatrix can handle it directly.
-  if (currentLayer == 2 && ConfigManager::keyboardLayer3[colIndex][rowIndex] != 0) {
+  if (currentLayer == 2 &&
+      ConfigManager::keyboardLayer3[colIndex][rowIndex] != 0) {
     return false;
   }
 
-  for (size_t i = 0; i < ConfigManager::longPressKeys.size();
-       i++) {
-    if (ConfigManager::longPressKeys[i].col == colIndex && ConfigManager::longPressKeys[i].row == rowIndex) {
+  for (size_t i = 0; i < ConfigManager::longPressKeys.size(); i++) {
+    if (ConfigManager::longPressKeys[i].col == colIndex &&
+        ConfigManager::longPressKeys[i].row == rowIndex) {
       return true;
     }
   }
@@ -246,11 +241,13 @@ void emitKey(char output) {
     cmdUsedWithOtherKey = true;
     // Cancel long-press for ALT if it's being used as a modifier for another
     // key
-    for (size_t i = 0; i < ConfigManager::longPressKeys.size();
-         i++) {
-      if (ConfigManager::longPressKeys[i].col == ALT_COL && ConfigManager::longPressKeys[i].row == ALT_ROW) {
-        ConfigManager::longPressKeys[i].tracking = false;
-        break;
+    if (!isEmittingLongPress) {
+      for (size_t i = 0; i < ConfigManager::longPressKeys.size(); i++) {
+        if (ConfigManager::longPressKeys[i].col == ALT_COL &&
+            ConfigManager::longPressKeys[i].row == ALT_ROW) {
+          ConfigManager::longPressKeys[i].tracking = false;
+          break;
+        }
       }
     }
   }
@@ -272,11 +269,13 @@ void emitSpecialKey(uint8_t keycode) {
     cmdUsedWithOtherKey = true;
     // Cancel long-press for ALT if it's being used as a modifier for another
     // key
-    for (size_t i = 0; i < ConfigManager::longPressKeys.size();
-         i++) {
-      if (ConfigManager::longPressKeys[i].col == ALT_COL && ConfigManager::longPressKeys[i].row == ALT_ROW) {
-        ConfigManager::longPressKeys[i].tracking = false;
-        break;
+    if (!isEmittingLongPress) {
+      for (size_t i = 0; i < ConfigManager::longPressKeys.size(); i++) {
+        if (ConfigManager::longPressKeys[i].col == ALT_COL &&
+            ConfigManager::longPressKeys[i].row == ALT_ROW) {
+          ConfigManager::longPressKeys[i].tracking = false;
+          break;
+        }
       }
     }
   }
@@ -291,8 +290,7 @@ void processLongPressFallbacks() {
   const unsigned long now = millis();
   const uint8_t activeLayer = currentLayer;
 
-  for (size_t i = 0; i < ConfigManager::longPressKeys.size();
-       i++) {
+  for (size_t i = 0; i < ConfigManager::longPressKeys.size(); i++) {
     LongPressKey &key = ConfigManager::longPressKeys[i];
     const bool active = keyActive(key.col, key.row);
 
@@ -316,7 +314,12 @@ void processLongPressFallbacks() {
         if (key.layerAtPress != 2) {
           const char longOutput = (key.layerAtPress == 1) ? key.layer2LongOutput
                                                           : key.baseLongOutput;
+          isEmittingLongPress = true;
           emitKey(longOutput);
+          if (key.col == 4 && key.row == 5) { // 'm' key long press -> ".."
+            emitKey('.');
+          }
+          isEmittingLongPress = false;
         }
         key.longSent = true; // Mark as sent to prevent re-triggering on release
       }
@@ -378,13 +381,14 @@ void printMatrix() {
         continue;
       }
 
-      if (activeLayer == 1 && ConfigManager::keyboardSpecial[colIndex][rowIndex] != 0) {
+      if (ConfigManager::keyboardSpecial[colIndex][rowIndex] != 0) {
         emitSpecialKey(ConfigManager::keyboardSpecial[colIndex][rowIndex]);
         continue;
       }
 
       // Check for Navigation keys in Layer 3
-      if (activeLayer == 2 && ConfigManager::keyboardLayer3[colIndex][rowIndex] != 0) {
+      if (activeLayer == 2 &&
+          ConfigManager::keyboardLayer3[colIndex][rowIndex] != 0) {
         emitSpecialKey(ConfigManager::keyboardLayer3[colIndex][rowIndex]);
         continue;
       }
@@ -398,7 +402,8 @@ void printMatrix() {
       }
 
       char output = ConfigManager::keyboard[colIndex][rowIndex];
-      if (activeLayer == 1 && ConfigManager::keyboardSymbol[colIndex][rowIndex] != '\0') {
+      if (activeLayer == 1 &&
+          ConfigManager::keyboardSymbol[colIndex][rowIndex] != '\0') {
         output = ConfigManager::keyboardSymbol[colIndex][rowIndex];
       } else if (activeLayer == 2 &&
                  ConfigManager::keyboardLayer3[colIndex][rowIndex] != '\0') {
@@ -469,7 +474,7 @@ void setup() {
   ConfigManager::begin();
   WebManager::begin();
   StatusLED::begin();
-  
+
   // Configure CPU frequency and dynamic power management
   // Set max frequency to 80MHz, min to 20MHz (auto-scales when idle)
   esp_pm_config_esp32s3_t pm_config = {
