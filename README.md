@@ -33,7 +33,7 @@ No more re-compiling! You can now customize your keyboard layout and shortcuts i
 1.  **Hold the `SYM` key for 10 seconds.**
 2.  The keyboard will temporarily disconnect Bluetooth and start a WiFi hotspot named **`BBQ10_Config`**.
 3.  Connect to the WiFi (Password: `12345678`).
-4.  A configuration page should **automatically pop up** (Captive Portal). If not, visit `http://192.168.4.1` in your browser.
+4.  A configuration page should **automatically pop up** (Captive Portal). If not, visit `http://10.0.0.1` in your browser.
 5.  Customize your keys and click **Save**.
 6.  Click **Reboot** to return to normal keyboard mode.
 
@@ -54,17 +54,18 @@ The firmware supports three logical layers by default, but all are fully customi
 Q W E R T Y U I O P
 A S D F G H J K L Backspace
 Shift Z X C V B N M ; Enter
-Ctrl(Mic) Alt(0) Space Sym(L2/L3) aA(Shift)
+Ctrl(Mic) Win/Cmd(0) Space Sym(L2/L3) aA(Shift)
 ```
 
 ## Features & Optimizations
 
 ### 1. WiFi Web Dashboard
 - **Visual Mapping**: A modern, interactive UI that mirrors your physical keyboard layout.
-- **Layer Editing**: Change characters for Base and Symbol layers directly.
-- **Navigation Layer**: Map any key to special keycodes (Arrows, Home, End, etc.).
-- **Long Press Shortcuts**: Define custom behaviors for long-pressing keys (useful for hardware workarounds or macros).
-- **Captive Portal**: Automatically opens the config page upon WiFi connection.
+- **Multi-Layer View**: Toggle between Base, Symbol, Nav, and Long Press layers with dedicated tabs.
+- **Dynamic Editor**: A streamlined, contextual editor that adapts to the active layer.
+- **Config Export/Import**: Download your layout as a JSON file or upload others' configurations.
+- **Long Press Shortcuts**: Define custom behaviors (e.g., long press `m` for `..`).
+- **Captive Portal**: Automatically opens the config page upon WiFi connection (AP IP: `10.0.0.1`).
 
 ### 2. iOS Command (⌘) Modifier
 - The **Alt** key is mapped to the **Command (GUI)** modifier by default.

@@ -1,12 +1,15 @@
 #pragma once
 
 #include <Arduino.h>
-#include <WiFi.h>
+#include <ArduinoJson.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-#include <ArduinoJson.h>
 #include <LittleFS.h>
+#include <WiFi.h>
 #include <vector>
+
+
+extern uint32_t wifi_enable_press_time;
 
 constexpr size_t CM_ROW_COUNT = 7;
 constexpr size_t CM_COL_COUNT = 5;
@@ -21,22 +24,23 @@ struct LongPressKey {
   char layer2LongOutput;
   bool tracking;
   bool longSent;
+  bool repeatActive;
   uint8_t layerAtPress;
   unsigned long pressStart;
 };
 
 class ConfigManager {
 public:
-    static void begin();
-    static void loadConfig();
-    static void saveConfig();
+  static void begin();
+  static void loadConfig();
+  static void saveConfig();
 
-    static void setDefaults();
+  static void setDefaults();
 
-    // Configuration state
-    static char keyboard[CM_COL_COUNT][CM_ROW_COUNT];
-    static char keyboardSymbol[CM_COL_COUNT][CM_ROW_COUNT];
-    static uint8_t keyboardLayer3[CM_COL_COUNT][CM_ROW_COUNT];
-    static uint8_t keyboardSpecial[CM_COL_COUNT][CM_ROW_COUNT];
-    static std::vector<LongPressKey> longPressKeys;
+  // Configuration state
+  static char keyboard[CM_COL_COUNT][CM_ROW_COUNT];
+  static char keyboardSymbol[CM_COL_COUNT][CM_ROW_COUNT];
+  static uint8_t keyboardLayer3[CM_COL_COUNT][CM_ROW_COUNT];
+  static uint8_t keyboardSpecial[CM_COL_COUNT][CM_ROW_COUNT];
+  static std::vector<LongPressKey> longPressKeys;
 };

@@ -34,13 +34,13 @@ void WebManager::startConfigMode() {
     
     // Start WiFi AP
     WiFi.mode(WIFI_AP);
-    // Setting IP to 192.168.4.1 (Standard ESP32 AP IP)
-    WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
+    // Setting IP to 10.0.0.1 as requested
+    WiFi.softAPConfig(IPAddress(10, 0, 0, 1), IPAddress(10, 0, 0, 1), IPAddress(255, 255, 255, 0));
     WiFi.softAP("BBQ10_Config", "12345678");
 
     // Start DNS Server (redirect all domains to AP IP)
     // This creates the "Captive Portal" effect
-    _dnsServer.start(53, "*", IPAddress(192, 168, 4, 1));
+    _dnsServer.start(53, "*", IPAddress(10, 0, 0, 1));
 
     Serial.print("AP IP address: ");
     Serial.println(WiFi.softAPIP());
@@ -54,6 +54,8 @@ void WebManager::startConfigMode() {
     server.on("/hotspot-detect.html", HTTP_GET, [](AsyncWebServerRequest *request){ request->redirect("/"); });
     server.on("/canonical.html", HTTP_GET, [](AsyncWebServerRequest *request){ request->redirect("/"); });
     server.on("/success.txt", HTTP_GET, [](AsyncWebServerRequest *request){ request->send(200, "text/plain", "success"); });
+    server.on("/ncsi.txt", HTTP_GET, [](AsyncWebServerRequest *request){ request->send(200, "text/plain", "Microsoft NCSI"); });
+    server.on("/redirect", HTTP_GET, [](AsyncWebServerRequest *request){ request->redirect("/"); });
 
     server.on("/api/config", HTTP_GET, [](AsyncWebServerRequest *request){
         if (!LittleFS.exists("/config.json")) {
