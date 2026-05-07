@@ -14,9 +14,8 @@ ESP32-Based: Lightweight and efficient firmware architecture.
 
 WiFi Web Configurator: No need to recompile the code. Simply connect to the keyboard’s WiFi to change settings on the fly.
 
-![image](https://github.com/user-attachments/assets/ae8b1524-0572-4314-abdb-6f2c4adfec81)
+<img width="647" height="401" alt="image" src="https://github.com/user-attachments/assets/54d68493-1265-4a96-b096-8f25551b9b86" />
 
-![image](https://github.com/user-attachments/assets/fcecaf61-dc60-4fdc-9c34-d4b2fef50c74)
 
 Graphical Interaction: An intuitive web-based interface for effortless key mapping and macro configuration.
 
@@ -65,20 +64,15 @@ Ctrl(Mic) Win/Cmd(0) Space Sym(L2/L3) aA(Shift)
 - **Dynamic Editor**: A streamlined, contextual editor that adapts to the active layer.
 - **Config Export/Import**: Download your layout as a JSON file or upload others' configurations.
 - **Long Press Shortcuts**: Define custom behaviors (e.g., long press `m` for `..`).
-- **Captive Portal**: Automatically opens the config page upon WiFi connection (AP IP: `10.0.0.1`).
+- **Captive Portal**: press sym for 5 seconds, connect to wifi, opens the config page upon WiFi connection (AP IP: `10.0.0.1`).
 
 ### 2. iOS Command (⌘) Modifier
-- The **Alt** key is mapped to the **Command (GUI)** modifier by default.
-- Supports instant shortcuts: `Alt + C` (Copy), `Alt + V` (Paste), `Alt + Space` (Spotlight).
+- The **0** key is mapped to the **Command (GUI)** modifier by default.
 
 ### 3. Smart Tab Trigger
 - **Long Press Alt**: Sends a **Tab** signal.
-- **Intelligent Conflict Resolution**: Cancel Tab if Alt is used as a modifier.
 
-### 4. Hardware Fallbacks
-- Optimized for boards with broken matrix lines (e.g., long press `D` for `F`). These are now configurable via the dashboard!
-
-### 5. System Integration
+### 4. System Integration
 - **Dual Mode**: Sends key events to both BLE and USB HID simultaneously.
 - **Auto-Reconnect**: Preserves BLE bonds for seamless pairing.
 - **Persistent Storage**: Settings are stored in **LittleFS** as a JSON file.
