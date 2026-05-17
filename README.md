@@ -49,12 +49,10 @@ This is a lightweight, ESP32-S3-based firmware implementation that transforms a 
 
 | Component | Part Number / Details | Estimated Cost | Notes |
 |-----------|----------------------|-----------------|-------|
-| **Microcontroller** | ESP32-S3 DevKit-C-1 | $8–12 | 4MB Flash, WiFi + BLE, USB native |
+| **Microcontroller** | ESP32-S3 Super Mini | $8–12 | 4MB Flash, WiFi + BLE, USB native |
 | **Keyboard Module** | BlackBerry Q10 Keyboard | $15–25 | 7×5 matrix, find on eBay/AliExpress |
-| **RGB Status LED** | WS2812B (NeoPixel) | $0.50–1 | Addressable RGB, GPIO48 on ESP32-S3 |
 | **USB Cable** | USB-C (for ESP32-S3) | $1–2 | For flashing and power |
 | **Micro USB Adapter** | (Optional) | $1–2 | If using USB-A keyboard connection |
-| **Resistors** | 10k Ω pull-ups | $0.10 | For keyboard matrix lines (if needed) |
 
 ### Estimated Total: $25–45 USD
 
