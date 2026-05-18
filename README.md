@@ -9,6 +9,8 @@
 
 ![BBQ10 Keyboard Project](https://github.com/kkbin505/BBQ10_KBD_Firmware/blob/web_server/img/IMG_5940.jpg)
 
+
+![wifi](img/wifi_config.jpg)
 ## About This Project
 
 This is a lightweight, ESP32-S3-based firmware implementation that transforms a BlackBerry Q10 keyboard module into a **high-performance dual-mode BLE/USB keyboard**. Unlike traditional keyboard firmwares that require recompiling to change keymaps, this project features an **integrated WiFi-based configuration interface**—simply hold a key to enter config mode, connect to the built-in WiFi hotspot, and customize your layout through an intuitive web dashboard.
@@ -52,7 +54,10 @@ This is a lightweight, ESP32-S3-based firmware implementation that transforms a 
 | **Microcontroller** | ESP32-S3 Super Mini | $8–12 | 4MB Flash, WiFi + BLE, USB native |
 | **Keyboard Module** | BlackBerry Q10 Keyboard | $15–25 | 7×5 matrix, find on eBay/AliExpress |
 | **USB Cable** | USB-C (for ESP32-S3) | $1–2 | For flashing and power |
+| **Breakout Board** |  BM14B(0.B)-24DS-0.4V(53)  | $2 | connector |
 | **Micro USB Adapter** | (Optional) | $1–2 | If using USB-A keyboard connection |
+
+![wifi](img/wifi_config.jpg)
 
 ### Estimated Total: $25–45 USD
 
