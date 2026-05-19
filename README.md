@@ -9,8 +9,6 @@
 
 ![BBQ10 Keyboard Project](https://github.com/kkbin505/BBQ10_KBD_Firmware/blob/web_server/img/IMG_5940.jpg)
 
-
-![wifi](img/wifi_config.jpg)
 ## About This Project
 
 This is a lightweight, ESP32-S3-based firmware implementation that transforms a BlackBerry Q10 keyboard module into a **high-performance dual-mode BLE/USB keyboard**. Unlike traditional keyboard firmwares that require recompiling to change keymaps, this project features an **integrated WiFi-based configuration interface**—simply hold a key to enter config mode, connect to the built-in WiFi hotspot, and customize your layout through an intuitive web dashboard.
